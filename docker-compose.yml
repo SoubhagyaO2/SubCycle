@@ -1,0 +1,22 @@
+# One PostgreSQL container with two databases: subcycle_dev and subcycle_test.
+# The test database is created by docker/init-databases.sql on first start only.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: subcycle-postgres
+    environment:
+      POSTGRES_USER: subcycle
+      POSTGRES_PASSWORD: subcycle_local_pw
+      POSTGRES_DB: subcycle_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - subcycle_pgdata:/var/lib/postgresql/data
+      - ./docker/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subcycle -d subcycle_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  subcycle_pgdata:
