@@ -47,6 +47,17 @@ Status: **Approved with revisions (Stage 0 → Stage 1).** Section A is fixed by
 - Pause: `status=paused`, `paused_at=now`. Period fields unchanged; renewals skip paused subscriptions.
 - Resume: `current_period_end += (now - paused_at)`; `current_period_start` unchanged (so the usage period stays the same and usage "freezes"). `paused_at` cleared, status `active`. Resume never charges.
 - Pausing is allowed when `cancel_at_period_end = true`; the flag survives. Reactivate from `paused` is rejected (409) — resume first.
+- **Interaction matrix** (every row satisfies the `paused_at`-iff-`paused` CHECK because `status` and `paused_at` are always written in the same UPDATE):
+
+| Transition | `status` | `paused_at` | other fields |
+|---|---|---|---|
+| Pause (from `active`) | `paused` | `= now` | `cancel_at_period_end`, `cancel_requested_at`, `pending_plan_id`, period dates untouched |
+| Resume | `active` | `NULL` | `current_period_end += now - paused_at`; flags untouched (a scheduled cancel now takes effect at the *extended* end) |
+| Downgrade / remove pending change while paused | `paused` | unchanged | only `pending_plan_id` changes |
+| Cancel while paused | rejected 409 | — | — |
+| Renewal job on a paused row | never selected (`status = 'active'` only) | — | — |
+| Pause from `past_due` | rejected 409 | — | — |
+- Never allowed: a row with `paused_at` set and status other than `paused`, or `paused` with `paused_at` NULL; the CHECK makes such an application bug fail loudly.
 
 ### B4. Plan-change validation
 - **Upgrade**: target differs from current, same `interval`, **strictly higher** `price_cents`. Otherwise 400 (`VALIDATION_ERROR`), or 409 for wrong state.
@@ -55,16 +66,20 @@ Status: **Approved with revisions (Stage 0 → Stage 1).** Section A is fixed by
 - Upgrade while a pending downgrade exists: allowed; the pending downgrade is **cleared in the same transaction** as the plan switch, and the `upgraded` event's `meta` records the cleared plan (`cleared_pending_plan_id`), in addition to a `downgrade_cleared` event.
 - Downgrade while `cancel_at_period_end = true`: allowed (stored); cleared at finalization per fixed decision.
 
-### B5. Cancel from `past_due` (approved)
-- Cancel in `past_due` sets `cancel_at_period_end = true` and `cancel_requested_at = now` and writes `cancel_scheduled`. Status stays `past_due`.
-- The job distinguishes the two kinds of `past_due` visit by `cancel_at_period_end`:
-  - flag **set** → finalize the cancellation with `cancel_reason = user_requested`; **no charge is attempted**;
+### B5. Cancel from `past_due` (REVISED in review of Stage 1 — grace is preserved)
+The 72-hour grace period is an explicit promise: a cancellation request **stops future renewal attempts but never shortens the grace period**.
+- **Default cancel** (`POST /subscriptions/cancel`) in `past_due`: sets `cancel_at_period_end = true` and `cancel_requested_at = now`, **sets `next_retry_at = grace_ends_at`** (the job's wake-up time for this row), keeps `retry_count` as is, and writes `cancel_scheduled` (meta: `grace_ends_at`). Status stays `past_due`. Access continues under the B1 rule until `grace_ends_at`.
+- **Job behaviour.** A `past_due` row is selected by `status = 'past_due' AND next_retry_at <= now` (unchanged query). On visit it branches on `cancel_at_period_end`:
+  - flag **set** → **no charge is attempted** (the pending retries are abandoned because `next_retry_at` was moved to `grace_ends_at`); finalize `status = canceled`, `canceled_at = now`, `cancel_reason = user_requested`, `pending_plan_id = NULL`, `next_retry_at = NULL`, event `canceled`;
   - flag **clear** → ordinary retry (B1).
-- **Terminal boundary**: the paid period (`current_period_end`) has already passed for a `past_due` subscription, so the boundary has been reached; the job finalizes on its next visit. The job's past_due selection is `status = 'past_due' AND (next_retry_at <= now OR cancel_at_period_end)`. This means a user cancel ends the remaining grace access at the next job run. It does not wait for `grace_ends_at`.
-- `cancel_reason` values: `user_requested`, `payment_failed` (CHECK). `cancel_requested_at` (extra column) records the request moment so the audit trail shows *when* the user asked, even for cancels finalized later.
+- **Terminal boundary** = `grace_ends_at` (= `past_due_since + 72h`). It is the applicable boundary for a delinquent subscription because its paid period already ended; the grace window is the only access that remains. The cancel is finalized by the job's first visit at or after that instant (job lag can delay *finalization* but access is already blocked from `grace_ends_at` by the access rule, so lag never extends access).
+- **Immediate cancellation (explicit opt-in)**: `POST /subscriptions/cancel` with body `{ "immediate": true }` while `past_due` cancels at once: `status = canceled`, `canceled_at = now`, `cancel_reason = user_requested`, retry fields cleared, `cancel_at_period_end` left `false`, `cancel_requested_at = now`, event `canceled` (meta: `immediate: true`). Access ends immediately. `immediate` is rejected (400) for any other state.
+- **Distinguishing from ordinary retries**: a user-requested cancel in `past_due` is recognizable by `cancel_at_period_end = true` (and `cancel_requested_at`), and the final `cancel_reason = user_requested` differs from `payment_failed` (retries exhausted). A user cancel followed by `payment_failed` is impossible because retries don't run once the flag is set.
+- **Reactivate** (B6) is allowed in `past_due` with the flag set until finalization: it clears the flag and `cancel_requested_at` and restores the retry schedule: `next_retry_at = past_due_since + (retry_count + 1) days` (if that instant is already past, it is due immediately; the final-attempt rule in B1 applies).
+- `cancel_reason` values: `user_requested`, `payment_failed` (CHECK). `cancel_requested_at` records when the user asked. **No schema change is needed**: every timestamp above is representable with existing columns, and the existing CHECKs (`next_retry_at` only when `past_due`; `cancel_at_period_end` implies `cancel_requested_at`; canceled fields set iff `canceled`) all hold for each path.
 
 ### B6. Reactivate
-- Allowed only when `status = active`, `cancel_at_period_end = true`, and `now < current_period_end`. Clears both `cancel_at_period_end` and `cancel_requested_at`. Otherwise 409.
+- Allowed when (`status = active`, `cancel_at_period_end = true`, `now < current_period_end`) **or** (`status = past_due`, `cancel_at_period_end = true`, not yet finalized; see B5). Clears both `cancel_at_period_end` and `cancel_requested_at`. Otherwise 409.
 
 ### B7. Idempotency — provider layer and HTTP layer
 
@@ -126,14 +141,30 @@ A mock provider can't prove exactly-once effects across a DB and an external pay
 - a nullable `meta` JSONB on operations for provider payload references.
 A future `StripeProvider` also needs webhook ingestion (provider events de-duplicated by event id) — out of scope for v1 and not in the schema yet.
 
+### B12b. Invoice status vs. billing-operation consistency
+- `invoices.amount_cents > 0` stays (zero-amount changes never create invoices, B2).
+- An invoice and its operations are always changed in the **same transaction**, so they cannot disagree:
+  - `paid` ⇔ the obligation has a `succeeded` charge operation (and `invoice_id` points to the invoice);
+  - `failed` ⇔ the obligation has at least one `failed` charge operation and **no** `succeeded` one; a later `succeeded` attempt flips it to `paid`;
+  - `refunded` ⇔ a `succeeded` refund operation whose `refund_of_operation_id` is the invoice's succeeded charge. A **pending** refund leaves the invoice `paid`; a failed refund also leaves it `paid` and stays visible for retry/alerting.
+- Compensation refunds for a charge that never produced an invoice (B12, e.g. initial subscribe race) have no invoice to mark; the refund operation row is the record.
+- These rules are covered by service tests in the stages that implement them (Stage 3/4); the schema already forbids dangling links (FKs) and duplicate refunds.
+
 ### B13. Usage metrics
 - Valid metrics are the keys of the current plan's `limits` JSON. Unknown metric → 400. Limit `0` means "not allowed" (always 429).
-- Usage is recorded against the subscription's `current_period_start`; the free plan tracks usage too.
+- Usage is recorded against the subscription's **actual stored** `current_period_start`; the free plan tracks usage too. Limits are tied to the real billing period (monthly or yearly per plan interval, never a hard-coded calendar month). Yearly plan limits (e.g. Pro Yearly `api_calls` = 60,000) are a documented product decision: a yearly subscriber gets 12× the monthly allowance over the year.
 - On plan change mid-period usage carries over; new limits apply immediately for upgrades.
 - Access: `active` allowed (including `cancel_at_period_end`); `past_due` per B1; `paused` / `canceled` / none → 402 (`SUBSCRIPTION_INACTIVE`). Usage after `current_period_end` for an `active` subscription not yet renewed (job lag) is allowed against the stale period (limitation).
 
-### B14. Auth
-- bcrypt cost 12 (cost 4 under `NODE_ENV=test`). JWT HS256, 1 h expiry, no refresh tokens. Emails are lowercased and trimmed. Registration with an existing email → 409 `EMAIL_TAKEN` (accepted enumeration at registration; login stays generic).
+### B14. Auth (detailed for Stage 2)
+- bcrypt cost 12 by default (`BCRYPT_COST`; 4 under `NODE_ENV=test` for speed). Passwords: 8 to 72 **bytes** (bcrypt ignores bytes beyond 72, so longer passwords are rejected rather than silently truncated).
+- JWT HS256 only (algorithm pinned on verify), payload `{ sub, iat, exp }` — no email, name or other PII. Default expiry 1 h (`JWT_EXPIRES_IN_SECONDS`), no refresh tokens. `iat`/`exp` and the verification time come from the injected `Clock` (verification uses `clockTimestamp`), so expiry is testable with `FakeClock`.
+- `JWT_SECRET`: required, at least 32 characters, in production (startup fails otherwise). In development/test an unset secret falls back to a fixed, non-secret development value so the project runs out of the box; this fallback is **rejected in production**. The secret is never logged.
+- The authentication middleware verifies the token **and** loads the user from the database (a token for a deleted user is rejected with 401). A database failure there is a 500, never a 401, so clients don't log out on transient errors.
+- Login failure: always 401 `INVALID_CREDENTIALS` / "Invalid email or password", for unknown email and wrong password alike. A dummy bcrypt comparison runs for unknown emails so response time doesn't reveal whether an email exists.
+- Expired token → 401 `TOKEN_EXPIRED`; any other invalid token → 401 `UNAUTHENTICATED`.
+- Emails are trimmed, lowercased, max 254 chars. Registration with an existing email → 409 `EMAIL_TAKEN` (accepted enumeration at registration; login stays generic).
+- Rate limiting: `/auth/*` is limited per IP (default 20 requests / 15 min, configurable); over the limit → 429 `RATE_LIMITED` in the standard error shape. `trust proxy` is **not** enabled; behind a reverse proxy it must be configured so the client IP is correct.
 - `/dev/*` endpoints exist only when `NODE_ENV !== 'production'`; `advance-clock` additionally requires `FAKE_CLOCK=true`.
 
 ### B15. Tooling and misc
@@ -197,3 +228,14 @@ None blocking Stage 1.
 | B12 / B10 | Refund no longer inside a DB transaction: compensation is recorded durably then processed after commit and by the job. |
 | B16 | Pro Yearly `api_calls` raised to 60,000 (12×). |
 | B12a | New: schema supports a future outbox/Stripe design. |
+
+### Review of Stage 1
+
+| Item | Change |
+|---|---|
+| B5 | **Reversed**: cancel in `past_due` no longer ends grace early. Cancellation is finalized at `grace_ends_at` (job wakes via `next_retry_at = grace_ends_at`, no charge); optional explicit `immediate: true` cancels at once. No migration needed. |
+| B6 | Reactivate also allowed in `past_due` before finalization. |
+| B3a | Added the pause/resume interaction matrix showing every path respects the `paused_at` CHECK. |
+| B12b | New: invoice status must agree with billing-operation records. |
+| B13 | Limits tied to the real stored billing period; yearly 60,000 documented as a product decision. |
+| B14 | Stage 2 auth details. |

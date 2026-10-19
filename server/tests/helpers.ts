@@ -65,3 +65,12 @@ export async function insertSubscription(pool: Pool, userId: string, plan: strin
   );
   return rows[0]!.id;
 }
+
+/** Fast, deterministic auth settings for tests (bcrypt cost 4; generous rate limit unless overridden). */
+export function testAuthSettings(overrides: { ttlSeconds?: number; max?: number; secret?: string } = {}) {
+  return {
+    tokens: { secret: overrides.secret ?? 'test-secret-test-secret-test-secret-123456', ttlSeconds: overrides.ttlSeconds ?? 3600 },
+    bcryptCost: 4,
+    rateLimit: { windowMs: 60_000, max: overrides.max ?? 1000 },
+  };
+}
