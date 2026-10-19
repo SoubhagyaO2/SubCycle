@@ -368,7 +368,7 @@ describe('database failures', () => {
 });
 
 describe('rate limiting', () => {
-  it('limits /auth/* per client with a standard 429 error, and leaves other routes alone', async () => {
+  it('limits credential endpoints (login and register) per client with a standard 429 error, and leaves other routes alone', async () => {
     const limited = makeApp({ max: 3 });
     for (let i = 0; i < 3; i++) {
       const res = await request(limited).post('/auth/login').send({ email: 'x@example.com', password: 'whatever1' });
@@ -377,9 +377,20 @@ describe('rate limiting', () => {
     const blocked = await request(limited).post('/auth/login').send({ email: 'x@example.com', password: 'whatever1' });
     expect(blocked.status).toBe(429);
     expect(blocked.body).toEqual({ error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later', details: {} } });
-    expect((await request(limited).post('/auth/register').send({})).status).toBe(429); // shared across /auth/*
-    expect((await request(limited).get('/auth/me')).status).toBe(429);
+    expect((await request(limited).post('/auth/register').send({})).status).toBe(429); // shared by login and register
     expect((await request(limited).get('/health')).status).toBe(200);
+  });
+
+  it('/auth/me is NOT subject to the strict credential limiter: the frontend calls it on every page load', async () => {
+    const limited = makeApp({ max: 2 });
+    const reg = await register('me-limit@example.com', PASSWORD, 'M', limited); // 1 of 2 credential requests
+    const { token } = reg.body as AuthBody;
+    await request(limited).post('/auth/login').send({ email: 'me-limit@example.com', password: PASSWORD }); // 2 of 2
+    expect((await request(limited).post('/auth/login').send({ email: 'me-limit@example.com', password: PASSWORD })).status).toBe(429);
+    for (let i = 0; i < 25; i++) {
+      expect((await request(limited).get('/auth/me').set('Authorization', `Bearer ${token}`)).status).toBe(200);
+    }
+    expect((await request(limited).get('/auth/me')).status).toBe(401); // unauthenticated is still a plain 401, not a 429
   });
 });
 

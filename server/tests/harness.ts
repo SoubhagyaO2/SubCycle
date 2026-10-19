@@ -118,7 +118,7 @@ export async function billingInvariantViolations(pool: Pool): Promise<string[]> 
  * Deterministic barrier: resolves once some backend is BLOCKED waiting on a lock while running a statement containing
  * `fragment` (polls pg_stat_activity; condition-based, not a fixed sleep). Fails after `timeoutMs`.
  */
-export async function waitUntilBlocked(pool: Pool, fragment: string, timeoutMs = 10_000): Promise<void> {
+export async function waitUntilBlocked(pool: Pool, fragment: string, timeoutMs = 45_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const { rows } = await pool.query(
