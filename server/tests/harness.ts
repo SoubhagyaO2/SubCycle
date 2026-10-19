@@ -19,7 +19,7 @@ export interface Harness {
   deps: BillingDeps;
 }
 
-export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider } = {}): Harness {
+export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider; usageMax?: number } = {}): Harness {
   const clock = new FakeClock(opts.start ?? T0);
   const provider = opts.provider ?? new MockProvider();
   const timeoutMs = opts.timeoutMs ?? 5000;
@@ -29,6 +29,7 @@ export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: nu
     corsOrigins: [],
     auth: testAuthSettings({ ttlSeconds: 10 * 365 * 86_400 }), // tokens must outlive the fake clock jumps
     billing: { provider, providerTimeoutMs: timeoutMs },
+    usageRateLimit: { windowMs: 60_000, max: opts.usageMax ?? 100_000 },
   });
   return { pool, clock, provider, app, deps: { pool, clock, provider, providerTimeoutMs: timeoutMs } };
 }
@@ -103,5 +104,39 @@ export async function billingInvariantViolations(pool: Pool): Promise<string[]> 
        AND (SELECT status FROM invoices WHERE id = c.invoice_id) NOT IN ('paid', 'refunded')`,
     'succeeded charge linked to a non-paid invoice',
   );
+  return problems;
+}
+
+/**
+ * Deterministic barrier: resolves once some backend is BLOCKED waiting on a lock while running a statement containing
+ * `fragment` (polls pg_stat_activity; condition-based, not a fixed sleep). Fails after `timeoutMs`.
+ */
+export async function waitUntilBlocked(pool: Pool, fragment: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1 AND pid <> pg_backend_pid()`,
+      [`%${fragment}%`],
+    );
+    if (rows.length > 0) return;
+    if (Date.now() > deadline) throw new Error(`no backend became blocked on a statement containing "${fragment}"`);
+    await sleep(5);
+  }
+}
+
+/** Counters must equal the sum of their ledger events (docs/DECISIONS.md B13a). Returns problems found. */
+export async function usageInvariantViolations(pool: Pool): Promise<string[]> {
+  const problems: string[] = [];
+  const counters = await pool.query<{ id: string }>(
+    `SELECT r.id FROM usage_records r
+     WHERE r.quantity <> COALESCE((SELECT sum(e.quantity) FROM usage_events e
+                                   WHERE e.subscription_id = r.subscription_id AND e.metric = r.metric AND e.period_start = r.period_start), 0)`,
+  );
+  for (const r of counters.rows) problems.push(`counter != ledger sum: ${r.id}`);
+  const orphans = await pool.query<{ id: string }>(
+    `SELECT e.id FROM usage_events e WHERE NOT EXISTS (
+       SELECT 1 FROM usage_records r WHERE r.subscription_id = e.subscription_id AND r.metric = e.metric AND r.period_start = e.period_start)`,
+  );
+  for (const r of orphans.rows) problems.push(`ledger event without a counter: ${r.id}`);
   return problems;
 }

@@ -42,17 +42,18 @@ describe('migration runner', () => {
       '0003_billing.sql',
       '0004_events_usage_idempotency.sql',
       '0005_event_sequence.sql',
+      '0006_usage_ledger_demo.sql',
     ]);
     const second = await runMigrations(scratch);
     expect(second.applied).toEqual([]);
-    expect(second.skipped).toHaveLength(5);
+    expect(second.skipped).toHaveLength(6);
   });
 
   it('is safe when two runners start concurrently on a fresh database', async () => {
     await scratch.query('DROP SCHEMA public CASCADE');
     await scratch.query('CREATE SCHEMA public');
     const results = await Promise.all([runMigrations(scratch), runMigrations(scratch)]);
-    expect(results.flatMap((r) => r.applied)).toHaveLength(5); // each migration applied exactly once
+    expect(results.flatMap((r) => r.applied)).toHaveLength(6); // each migration applied exactly once
   });
 
   it('rejects a modified, already-applied migration (checksum)', async () => {

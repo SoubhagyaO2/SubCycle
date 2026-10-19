@@ -2,7 +2,7 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: Stages 1-4 complete** (foundation, auth, billing layer, subscription lifecycle). Usage limits, renewal/reconciliation jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: foundation, auth, billing layer, subscription lifecycle and usage limits are complete.** Renewal/reconciliation jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
 
 ## Prerequisites
 
@@ -60,7 +60,13 @@ All errors use `{ "error": { "code", "message", "details" } }`.
 | POST | `/subscriptions/reactivate` | Bearer | Undo a scheduled cancel |
 | GET | `/invoices` | Bearer | The caller's invoices |
 
-Errors: `400 VALIDATION_ERROR`, `401`, `402 PAYMENT_FAILED`, `404`, `409 INVALID_TRANSITION | OPERATION_IN_PROGRESS | STATE_CHANGED | REQUEST_IN_PROGRESS`, `422 IDEMPOTENCY_KEY_REUSED`.
+| GET | `/usage` | Bearer | Usage vs limits for every metric of the current plan, scoped to the stored billing period. Works while paused (read-only) |
+| POST | `/usage` | Bearer | `{ metric, quantity }` (integer 1..1,000,000); optional `Idempotency-Key` makes recording exactly-once. 201 (or 200 `replayed:true`); 402 `SUBSCRIPTION_REQUIRED`/`SUBSCRIPTION_INACTIVE`; 429 `LIMIT_EXCEEDED` with `limit`, `used`, `remaining` |
+| POST | `/demo/generate-report` | Bearer | Metered by `enforceLimit('api_calls')`: usage and the report commit atomically; same 402/429 rules |
+
+**Usage semantics** (full rules in [docs/DECISIONS.md B13a](docs/DECISIONS.md)): usage is consumed if and only if the metered operation commits. The limit check and increment are one conditional PostgreSQL statement (no read-then-write race), run under a share lock on the subscription so pause/cancel/upgrade serialize with usage. A limit of `0` denies, JSON `null` is unlimited, a malformed limit denies, and a metric not in the plan is `400 UNKNOWN_METRIC`. For real external work that cannot join the transaction, record usage *after* success with an `Idempotency-Key` (exactly-once; may under-count if the caller dies in between), or *reserve first* (may over-count if the work then fails).
+
+Errors: `400 VALIDATION_ERROR`, `401`, `402 PAYMENT_FAILED`, `404`, `402 SUBSCRIPTION_REQUIRED | SUBSCRIPTION_INACTIVE`, `409 INVALID_TRANSITION | OPERATION_IN_PROGRESS | STATE_CHANGED | REQUEST_IN_PROGRESS`, `422 IDEMPOTENCY_KEY_REUSED`, `429 LIMIT_EXCEEDED` (plan limit) vs `429 RATE_LIMITED` (request rate).
 
 **Idempotency-Key**: all `POST`/`DELETE` lifecycle endpoints accept an optional `Idempotency-Key` header (1-255 printable ASCII). A repeated identical request returns the original response with `Idempotent-Replay: true` and does not run again; the same key with a different request is a 422. A declined payment (402) is replayed for the same key, so retry with a new key. See [DECISIONS B7/B7a](docs/DECISIONS.md).
 
@@ -87,6 +93,8 @@ Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**
 | pro_yearly | Pro (Yearly) | year | ₹4,999 | 60,000 | 10 | 3 |
 
 ## Testing
+
+Concurrency tests are deterministic: instead of sleeping, they park a request inside the mock provider (`provider.holdNextCharge()`) or behind a real PostgreSQL lock (`waitUntilBlocked`) and release it explicitly. Tests that start requests simultaneously assert only order-independent invariants.
 
 `npm test` resets and migrates the **test** database (`TEST_DATABASE_URL`, whose name must end in `_test`) once, then runs test files serially, truncating data tables between tests. The migration tests use a throwaway database that they create and drop.
 

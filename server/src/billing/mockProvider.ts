@@ -27,6 +27,17 @@ interface StoredOperation {
   type: 'charge' | 'refund';
 }
 
+export interface ChargeGate {
+  entered: Promise<void>;
+  completed: Promise<void>;
+  release(): void;
+}
+interface InternalGate extends ChargeGate {
+  released: Promise<void>;
+  enter(): void;
+  done(): void;
+}
+
 export interface MockProviderOptions {
   failMode?: MockFailMode;
   /** Artificial latency before each charge is processed (lets tests create overlapping requests). */
@@ -49,6 +60,7 @@ export class MockProvider implements BillingProvider {
   private readonly operations = new Map<string, StoredOperation>();
   private readonly charged = new Map<string, number>(); // providerReference -> amount charged
   private readonly refundedTotals = new Map<string, number>();
+  private readonly gates: InternalGate[] = [];
   private scriptedDeclines = 0;
   private lostResponses = 0;
   private droppedRequests = 0;
@@ -72,6 +84,26 @@ export class MockProvider implements BillingProvider {
   setLatency(ms: number): void {
     this.latencyMs = ms;
   }
+  /**
+   * Deterministic concurrency barrier (replaces sleeps in tests). The next charge() call blocks inside the provider until
+   * `release()`. `entered` resolves when that call has arrived (so the test KNOWS the request is mid-charge);
+   * `completed` resolves when the call has finished processing.
+   */
+  holdNextCharge(): ChargeGate {
+    let enter!: () => void;
+    let release!: () => void;
+    let done!: () => void;
+    const gate: InternalGate = {
+      entered: new Promise<void>((r) => (enter = r)),
+      released: new Promise<void>((r) => (release = r)),
+      completed: new Promise<void>((r) => (done = r)),
+      enter: () => enter(),
+      done: () => done(),
+      release: () => release(),
+    };
+    this.gates.push(gate);
+    return { entered: gate.entered, completed: gate.completed, release: () => release() };
+  }
   /** The next n NEW charges are declined (replays of already-stored keys are unaffected). */
   declineNext(n = 1): void {
     this.scriptedDeclines = n;
@@ -88,6 +120,7 @@ export class MockProvider implements BillingProvider {
     this.operations.clear();
     this.charged.clear();
     this.refundedTotals.clear();
+    this.gates.length = 0;
     this.scriptedDeclines = this.lostResponses = this.droppedRequests = 0;
     this.chargeCalls = this.processedCharges = this.refundCalls = this.processedRefunds = 0;
     this.failMode = { kind: 'never' };
@@ -97,6 +130,19 @@ export class MockProvider implements BillingProvider {
 
   async charge(input: ChargeInput): Promise<ChargeResult> {
     this.chargeCalls++;
+    const gate = this.gates.shift();
+    if (gate) {
+      gate.enter();
+      await gate.released; // the charge is "in flight": the caller's phase 1 is committed, phase 3 has not started
+    }
+    try {
+      return await this.processCharge(input);
+    } finally {
+      gate?.done();
+    }
+  }
+
+  private async processCharge(input: ChargeInput): Promise<ChargeResult> {
     if (this.latencyMs > 0) await new Promise((r) => setTimeout(r, this.latencyMs));
 
     const existing = this.operations.get(input.idempotencyKey);

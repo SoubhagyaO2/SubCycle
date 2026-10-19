@@ -8,6 +8,8 @@ export function createTestPool(): Pool {
 }
 
 const DATA_TABLES = [
+  'demo_reports',
+  'usage_events',
   'idempotency_keys',
   'usage_records',
   'subscription_events',
