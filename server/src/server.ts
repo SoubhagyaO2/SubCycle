@@ -6,7 +6,16 @@ import { FakeClock, SystemClock, type Clock } from './lib/clock';
 const config = loadConfig();
 const pool = createPool(config.DATABASE_URL);
 const clock: Clock = config.FAKE_CLOCK ? new FakeClock(new SystemClock().now()) : new SystemClock();
-const app = createApp({ pool, clock, corsOrigins: config.CORS_ORIGINS });
+const app = createApp({
+  pool,
+  clock,
+  corsOrigins: config.CORS_ORIGINS,
+  auth: {
+    tokens: { secret: config.JWT_SECRET, ttlSeconds: config.JWT_EXPIRES_IN_SECONDS },
+    bcryptCost: config.BCRYPT_COST,
+    rateLimit: { windowMs: config.AUTH_RATE_LIMIT_WINDOW_MS, max: config.AUTH_RATE_LIMIT_MAX },
+  },
+});
 
 const server = app.listen(config.PORT, () => {
   console.log(`SubCycle API listening on port ${config.PORT} (${config.NODE_ENV})`);

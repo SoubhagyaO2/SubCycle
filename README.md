@@ -2,7 +2,7 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: Stage 1 (Foundation) complete.** Auth, billing, subscriptions, usage, jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: Stage 2 (Auth) complete.** Billing, subscriptions, usage, jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
 
 ## Prerequisites
 
@@ -35,6 +35,21 @@ Check it: `curl http://localhost:4000/health`.
 | `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `npm run db:seed` | Upsert seed plans |
 | `npm run db:reset` | **Drops** the `public` schema, re-migrates and re-seeds. Dev/test only. Refuses `NODE_ENV=production` and non-local hosts (unless `ALLOW_DB_RESET=true`) |
+
+## API (so far)
+
+All errors use `{ "error": { "code", "message", "details" } }`.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/health` | no | DB connectivity + server time |
+| POST | `/auth/register` | no | `{ email, password (8–72 bytes), name }` → 201 `{ user, token, expiresAt }`; 409 `EMAIL_TAKEN`; 400 `VALIDATION_ERROR` |
+| POST | `/auth/login` | no | `{ email, password }` → 200 `{ user, token, expiresAt }`; 401 `INVALID_CREDENTIALS` (same for unknown email and wrong password) |
+| GET | `/auth/me` | Bearer | → `{ user }`; 401 `UNAUTHENTICATED` / `TOKEN_EXPIRED` |
+
+Send the token as `Authorization: Bearer <token>`. Tokens are HS256 JWTs (payload `sub`, `iat`, `exp` only), valid 1 h by default. `/auth/*` is rate limited per IP (default 20 / 15 min, `429 RATE_LIMITED`). Email is trimmed and lower-cased. Details and rationale: [docs/DECISIONS.md B14](docs/DECISIONS.md).
+
+Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**; dev/test fall back to a fixed non-secret value), `JWT_EXPIRES_IN_SECONDS`, `BCRYPT_COST`, `AUTH_RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_WINDOW_MS`.
 
 ## Database
 
