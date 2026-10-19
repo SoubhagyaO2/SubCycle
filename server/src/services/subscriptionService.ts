@@ -90,7 +90,7 @@ async function buildView(q: Queryable, row: SubscriptionRow, now: Date): Promise
     graceEndsAt: row.past_due_since ? graceEndsAt(row.past_due_since).toISOString() : null,
     retryCount: row.retry_count,
     nextRetryAt: isoOrNull(row.next_retry_at),
-    accessAllowed: hasAccess({ status: row.status, pastDueSince: row.past_due_since }, now),
+    accessAllowed: hasAccess({ status: row.status, pastDueSince: row.past_due_since, currentPeriodEnd: row.current_period_end }, now),
     createdAt: row.created_at.toISOString(),
   };
 }

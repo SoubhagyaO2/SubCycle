@@ -19,7 +19,7 @@ export interface Harness {
   deps: BillingDeps;
 }
 
-export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider; usageMax?: number } = {}): Harness {
+export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider; usageMax?: number; dev?: boolean; fakeClockEnabled?: boolean } = {}): Harness {
   const clock = new FakeClock(opts.start ?? T0);
   const provider = opts.provider ?? new MockProvider();
   const timeoutMs = opts.timeoutMs ?? 5000;
@@ -30,6 +30,7 @@ export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: nu
     auth: testAuthSettings({ ttlSeconds: 10 * 365 * 86_400 }), // tokens must outlive the fake clock jumps
     billing: { provider, providerTimeoutMs: timeoutMs },
     usageRateLimit: { windowMs: 60_000, max: opts.usageMax ?? 100_000 },
+    ...(opts.dev ? { dev: { fakeClock: opts.fakeClockEnabled === false ? null : clock } } : {}),
   });
   return { pool, clock, provider, app, deps: { pool, clock, provider, providerTimeoutMs: timeoutMs } };
 }
@@ -100,6 +101,12 @@ export async function billingInvariantViolations(pool: Pool): Promise<string[]> 
     'refunded invoice without a succeeded refund',
   );
   await q(
+    `SELECT i.id FROM invoices i WHERE i.status IN ('paid', 'refunded')
+       AND NOT EXISTS (SELECT 1 FROM billing_operations o WHERE o.obligation_key = i.obligation_key AND o.operation_type = 'charge'
+                       AND o.status = 'succeeded' AND o.amount_cents = i.amount_cents AND o.invoice_id = i.id)`,
+    'paid/refunded invoice amount differs from the charge actually collected',
+  );
+  await q(
     `SELECT c.id FROM billing_operations c WHERE c.operation_type = 'charge' AND c.status = 'succeeded' AND c.invoice_id IS NOT NULL
        AND (SELECT status FROM invoices WHERE id = c.invoice_id) NOT IN ('paid', 'refunded')`,
     'succeeded charge linked to a non-paid invoice',
@@ -139,4 +146,13 @@ export async function usageInvariantViolations(pool: Pool): Promise<string[]> {
   );
   for (const r of orphans.rows) problems.push(`ledger event without a counter: ${r.id}`);
   return problems;
+}
+
+/** Condition-based wait (polls); fails after `timeoutMs`. Use instead of fixed sleeps. */
+export async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await cond())) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met in time');
+    await sleep(5);
+  }
 }

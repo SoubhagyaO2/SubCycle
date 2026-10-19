@@ -52,10 +52,10 @@ stateDiagram-v2
 | # | Action | From | Guard (besides state) | To | Effects | Event(s) |
 |---|---|---|---|---|---|---|
 | 1 | Subscribe | none / only `canceled` rows | Plan exists. Paid: charge succeeds (two-phase) | `active` | New row; `period_start = now`, `period_end = now + 1 interval`; paid → paid `initial` invoice | `subscribed` |
-| 2 | Upgrade | `active` | Same interval; higher price; charge succeeds if amount > 0 | `active` | `plan_id = target`; clears `pending_plan_id`; proration invoice if amount > 0; period unchanged | `upgraded` (+ `downgrade_cleared` if a pending plan was dropped) |
+| 2 | Upgrade | `active` **and `now < current_period_end`** | Same interval; higher price; charge succeeds if amount > 0 | `active` | `plan_id = target`; clears `pending_plan_id`; proration invoice if amount > 0; period unchanged | `upgraded` (+ `downgrade_cleared` if a pending plan was dropped) |
 | 3 | Downgrade | `active`, `paused` | Same interval; lower price than current plan | same | `pending_plan_id = target` (replaces any existing) | `downgrade_scheduled` |
 | 4 | Remove pending change | `active`, `paused`, `past_due` with `pending_plan_id` set | Pending change exists (else 409) | same | `pending_plan_id = NULL` | `downgrade_cleared` |
-| 5 | Pause | `active` | — | `paused` | `paused_at = now` | `paused` |
+| 5 | Pause | `active` **and `now < current_period_end`** | — | `paused` | `paused_at = now` | `paused` |
 | 6 | Resume | `paused` | — | `active` | `period_end += now − paused_at`; `paused_at = NULL`; no charge | `resumed` |
 | 7 | Cancel (default) | `active`, `past_due` | Not already scheduled (else 409) | same | `cancel_at_period_end = true`; `cancel_requested_at = now`. **In `past_due` additionally** `next_retry_at = past_due_since + 72h` (grace end): retries stop, grace access is preserved | `cancel_scheduled` (meta has `grace_ends_at` in `past_due`) |
 | 7b | Cancel immediately | `past_due` (body `{"immediate": true}`; 400 in any other state) | Explicit user opt-in | `canceled` | `canceled_at = now`; `cancel_reason = user_requested`; `cancel_requested_at = now`; clear `next_retry_at`, `past_due_since`, `retry_count`; `pending_plan_id = NULL`; access ends now | `canceled` (meta `immediate: true`) |
@@ -127,8 +127,29 @@ Computed with `BigInt`: `round_half_up(a × r / t) = (2·a·r + t) / (2·t)` (in
 
 ```
 hasAccess(sub, now):
-  active    → true
+  active    → now < sub.current_period_end        (strict: access stops AT the stored period end, job or no job)
   past_due  → now < sub.past_due_since + 72 hours
               (blocked at exactly +72h; the job still runs the final retry that is due at +72h)
   paused | canceled → false
+```
+
+## Period boundary and the renewal job (docs/DECISIONS.md B19)
+
+- An `active` subscription is **due** at `current_period_end <= now` and has **no access** from the same instant (`now >= current_period_end`). The two rules use the same inclusive instant, so there is no moment that is "due but still usable" or "usable but not due".
+- `upgrade` and `pause` are refused with 409 `renewal_due` once the period has ended (they would otherwise be prorated to 0 / grant free time); `cancel`, `downgrade`, removing a pending change still work; `reactivate` is refused.
+- The job claims a due row with `FOR UPDATE SKIP LOCKED` (skipped if another worker or a user action holds it) and processes it in this order:
+
+```
+due? (active: period_end <= now | past_due: next_retry_at <= now)
+ ├─ cancel_at_period_end ──────────► canceled (user_requested), pending plan cleared, NO charge   [rows 9 / 16]
+ ├─ next plan = pending_plan ?? plan
+ ├─ next plan price = 0 ──────────► roll period from OLD end, apply pending plan, active          [row 10]
+ └─ paid ── Tx1 pending attempt ─► provider ─► Tx2
+        success ► roll period, apply pending plan, invoice paid (failed→paid), renewed (+downgrade_applied) [rows 11 / 13]
+        failure ► active: past_due (grace starts now, retry in 1 day)                             [row 12]
+                  past_due: retry_count+1; cancel payment_failed if 3 retries failed OR now >= grace end;
+                            else next_retry_at = past_due_since + (retry_count+1) days             [rows 14 / 15]
+        unknown ► attempt stays pending; resolved by lookup of the ORIGINAL key (never a new attempt)
+        drift   ► (cancel requested / plan or pending changed / period moved while in flight)
+                  charge discarded + refunded; the next run re-evaluates
 ```

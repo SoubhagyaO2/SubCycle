@@ -27,6 +27,10 @@ export type TransitionDecision =
   | { ok: true; to: SubscriptionStatus }
   | { ok: false; kind: 'not_found' | 'conflict' | 'validation'; reason: string; message: string };
 
+/** An active subscription whose stored period has ended but which the renewal job has not processed yet. */
+const renewalDue = (sub: SubscriptionSnapshot, now: Date): boolean => sub.status === 'active' && now.getTime() >= sub.currentPeriodEnd.getTime();
+const RENEWAL_DUE_MESSAGE = 'Your billing period has ended and renewal is being processed. Please try again shortly.';
+
 const conflict = (reason: string, message: string): TransitionDecision => ({ ok: false, kind: 'conflict', reason, message });
 const ok = (to: SubscriptionStatus): TransitionDecision => ({ ok: true, to });
 
@@ -42,7 +46,8 @@ export function decide(action: Action, sub: SubscriptionSnapshot | null, now: Da
 
   switch (action) {
     case 'upgrade':
-      return status === 'active' ? ok('active') : conflict(`cannot_upgrade_from_${status}`, `Cannot upgrade a ${status} subscription`);
+      if (status !== 'active') return conflict(`cannot_upgrade_from_${status}`, `Cannot upgrade a ${status} subscription`);
+      return renewalDue(sub, now) ? conflict('renewal_due', RENEWAL_DUE_MESSAGE) : ok('active');
 
     case 'downgrade':
       return status === 'active' || status === 'paused'
@@ -53,7 +58,8 @@ export function decide(action: Action, sub: SubscriptionSnapshot | null, now: Da
       return sub.hasPendingPlan ? ok(status) : conflict('no_pending_change', 'There is no scheduled plan change to remove');
 
     case 'pause':
-      return status === 'active' ? ok('paused') : conflict(`cannot_pause_from_${status}`, `Cannot pause a ${status} subscription`);
+      if (status !== 'active') return conflict(`cannot_pause_from_${status}`, `Cannot pause a ${status} subscription`);
+      return renewalDue(sub, now) ? conflict('renewal_due', RENEWAL_DUE_MESSAGE) : ok('paused');
 
     case 'resume':
       return status === 'paused' ? ok('active') : conflict(`cannot_resume_from_${status}`, 'Only a paused subscription can be resumed');

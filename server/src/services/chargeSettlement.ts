@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import { withTransaction } from '../db/transaction';
 import { insertEvent, type SubscriptionRow } from '../db/subscriptionRepo';
+import { applyRenewalFailure, renewalDrift, rollPeriod } from './renewalApply';
 import {
   getOperation,
   refundKey,
@@ -29,7 +30,21 @@ export interface InitialMeta {
   periodEnd: string;
   description: string;
 }
-export type ChargeMeta = UpgradeMeta | InitialMeta;
+export interface RenewalMeta {
+  kind: 'renewal';
+  trigger: 'renewal' | 'retry';
+  fromPlanId: string;
+  toPlanId: string;
+  /** The pending plan applied by this renewal (null if none): used to detect drift while the charge is in flight. */
+  pendingPlanId: string | null;
+  /** current_period_end when the attempt was prepared; equals the new period start. */
+  oldPeriodEnd: string;
+  periodStart: string;
+  periodEnd: string;
+  amountCents: number;
+  description: string;
+}
+export type ChargeMeta = UpgradeMeta | InitialMeta | RenewalMeta;
 
 export type SettleResult =
   /** Money collected AND the state change applied. */
@@ -74,6 +89,16 @@ export async function settleCharge(
         const id = await upsertInvoice(client, { op, meta, status: 'failed', now });
         await client.query('UPDATE billing_operations SET invoice_id = $2 WHERE id = $1', [op.id, id]);
       }
+      // A failed renewal attempt moves the subscription towards past_due / cancellation (B19) -- unless the reconciler
+      // only proved the attempt never reached the provider: that is not a payment failure, the next run just retries.
+      if (meta.kind === 'renewal' && op.subscription_id && outcome.errorCode !== 'not_found_at_provider') {
+        const sub = (await client.query<SubscriptionRow>('SELECT * FROM subscriptions WHERE id = $1', [op.subscription_id])).rows[0]!;
+        const id = await upsertInvoice(client, { op, meta, status: 'failed', now });
+        await client.query('UPDATE billing_operations SET invoice_id = $2 WHERE id = $1', [op.id, id]);
+        // Only move the subscription if it is still the one this attempt was for (not canceled / already renewed meanwhile).
+        const stillDue = (sub.status === 'active' || sub.status === 'past_due') && sub.current_period_end.getTime() === new Date(meta.oldPeriodEnd).getTime();
+        if (stillDue) await applyRenewalFailure(client, sub, meta, now, `${outcome.errorCode}: ${outcome.message}`, { invoiceId: id, operationId: op.id, attempt: op.attempt });
+      }
       return { status: 'declined', op: failed[0]! };
     }
 
@@ -88,6 +113,30 @@ export async function settleCharge(
       const drift = upgradeDrift(sub, meta);
       if (drift) return discard(client, paidOp, drift, now, sub.id, sub.status);
       await applyUpgrade(client, sub, paidOp, meta, now);
+      return { status: 'applied', op: paidOp, subscriptionId: sub.id };
+    }
+
+    if (meta.kind === 'renewal') {
+      const sub = (await client.query<SubscriptionRow>('SELECT * FROM subscriptions WHERE id = $1', [op.subscription_id])).rows[0]!;
+      const drift = renewalDrift(sub, meta);
+      if (drift) return discard(client, paidOp, drift, now, sub.id, sub.status);
+      const invoiceId = await upsertInvoice(client, { op: paidOp, meta, status: 'paid', now });
+      await client.query('UPDATE billing_operations SET invoice_id = $2 WHERE id = $1', [paidOp.id, invoiceId]);
+      await rollPeriod(
+        client,
+        sub,
+        {
+          toPlanId: meta.toPlanId,
+          pendingPlanId: meta.pendingPlanId,
+          periodStart: new Date(meta.periodStart),
+          periodEnd: new Date(meta.periodEnd),
+          amountCents: meta.amountCents,
+          trigger: meta.trigger,
+          invoiceId,
+          operationId: paidOp.id,
+        },
+        now,
+      );
       return { status: 'applied', op: paidOp, subscriptionId: sub.id };
     }
 
@@ -222,17 +271,22 @@ async function applyInitial(client: PoolClient, paidOp: OperationRow, meta: Init
   return subscriptionId;
 }
 
-/** One invoice per billing obligation; a failed invoice may later become paid, a paid one is never downgraded. */
-async function upsertInvoice(
+/**
+ * One invoice per billing obligation. A failed invoice may later be paid by another attempt: the row is then updated to
+ * that attempt's amount/plan/description (they can differ, e.g. a re-prorated upgrade); a paid invoice is never touched.
+ */
+export async function upsertInvoice(
   client: PoolClient,
   a: { op: OperationRow; meta: ChargeMeta; status: 'paid' | 'failed'; now: Date },
 ): Promise<string> {
-  const kind = a.meta.kind === 'upgrade' ? 'upgrade_proration' : 'initial';
-  const planId = a.meta.kind === 'upgrade' ? a.meta.toPlanId : a.meta.planId;
+  const kind = a.meta.kind === 'upgrade' ? 'upgrade_proration' : a.meta.kind === 'renewal' ? 'renewal' : 'initial';
+  const planId = a.meta.kind === 'initial' ? a.meta.planId : a.meta.toPlanId;
   await client.query(
     `INSERT INTO invoices (subscription_id, plan_id, obligation_key, kind, status, amount_cents, description, billing_period_start, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-     ON CONFLICT (obligation_key) DO UPDATE SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
+     ON CONFLICT (obligation_key) DO UPDATE
+       SET status = EXCLUDED.status, amount_cents = EXCLUDED.amount_cents, plan_id = EXCLUDED.plan_id,
+           description = EXCLUDED.description, updated_at = EXCLUDED.updated_at
        WHERE invoices.status = 'failed'`,
     [a.op.subscription_id, planId, a.op.obligation_key, kind, a.status, a.op.amount_cents, a.meta.description, a.meta.periodStart, a.now],
   );
@@ -268,7 +322,12 @@ export async function processRefund(deps: BillingDeps, refundOpId: string): Prom
       idempotencyKey: refund.idempotency_key,
     });
   } catch {
-    return 'pending'; // unknown outcome: retried later with the SAME key
+    // Unknown outcome: stays pending and is retried on a later cycle with the SAME refund key (idempotent at the provider).
+    await deps.pool.query(
+      `UPDATE billing_operations SET resolve_attempts = resolve_attempts + 1, last_checked_at = $2 WHERE id = $1 AND status = 'pending'`,
+      [refundOpId, deps.clock.now()],
+    );
+    return 'pending';
   }
 
   return withTransaction(deps.pool, async (client) => {

@@ -84,7 +84,7 @@ export async function getUsage(deps: UsageDeps, userId: string): Promise<UsageRe
     subscription: {
       id: sub.id,
       status: sub.status,
-      accessAllowed: hasAccess({ status: sub.status, pastDueSince: sub.past_due_since }, now),
+      accessAllowed: hasAccess({ status: sub.status, pastDueSince: sub.past_due_since, currentPeriodEnd: sub.current_period_end }, now),
       graceEndsAt: sub.past_due_since ? graceEndsAt(sub.past_due_since).toISOString() : null,
     },
     period: { start: sub.current_period_start.toISOString(), end: sub.current_period_end.toISOString() },
@@ -135,11 +135,19 @@ export async function consumeUsage(client: PoolClient, deps: Pick<UsageDeps, 'cl
   const sub = rows[0];
   const now = deps.clock.now();
   if (!sub) throw paymentRequired('SUBSCRIPTION_REQUIRED', 'An active subscription is required to record usage');
-  if (!hasAccess({ status: sub.status, pastDueSince: sub.past_due_since }, now)) {
-    throw paymentRequired('SUBSCRIPTION_INACTIVE', `Your subscription is ${sub.status.replace('_', ' ')}; usage is not allowed`, {
-      status: sub.status,
-      graceEndsAt: sub.past_due_since ? graceEndsAt(sub.past_due_since).toISOString() : null,
-    });
+  if (!hasAccess({ status: sub.status, pastDueSince: sub.past_due_since, currentPeriodEnd: sub.current_period_end }, now)) {
+    // 'active' can only be refused because the stored period has ended and renewal has not been processed yet (B19).
+    const expired = sub.status === 'active';
+    throw paymentRequired(
+      'SUBSCRIPTION_INACTIVE',
+      expired ? 'Your billing period has ended and renewal is being processed; usage is not allowed until it completes' : `Your subscription is ${sub.status.replace('_', ' ')}; usage is not allowed`,
+      {
+        status: sub.status,
+        reason: expired ? 'period_ended' : sub.status === 'past_due' ? 'grace_expired' : sub.status,
+        periodEnd: sub.current_period_end.toISOString(),
+        graceEndsAt: sub.past_due_since ? graceEndsAt(sub.past_due_since).toISOString() : null,
+      },
+    );
   }
 
   if (!Object.prototype.hasOwnProperty.call(sub.limits, input.metric)) {
