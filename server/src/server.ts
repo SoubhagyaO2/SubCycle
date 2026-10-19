@@ -1,4 +1,5 @@
 import { createApp } from './app';
+import { MockProvider } from './billing/mockProvider';
 import { loadConfig } from './config';
 import { createPool } from './db/pool';
 import { FakeClock, SystemClock, type Clock } from './lib/clock';
@@ -15,6 +16,8 @@ const app = createApp({
     bcryptCost: config.BCRYPT_COST,
     rateLimit: { windowMs: config.AUTH_RATE_LIMIT_WINDOW_MS, max: config.AUTH_RATE_LIMIT_MAX },
   },
+  // v1 uses the mock provider. Swap in a real BillingProvider here (see src/billing/stripeProvider.ts).
+  billing: { provider: new MockProvider({ failMode: config.MOCK_BILLING_FAIL }), providerTimeoutMs: config.BILLING_TIMEOUT_MS },
 });
 
 const server = app.listen(config.PORT, () => {

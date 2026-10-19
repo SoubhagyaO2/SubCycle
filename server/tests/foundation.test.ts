@@ -9,7 +9,7 @@ import { errorHandler } from '../src/middleware/errorHandler';
 import { FakeClock, SystemClock } from '../src/lib/clock';
 import { AppError, conflict, validationError, type ErrorBody } from '../src/lib/errors';
 import { divRoundHalfUp } from '../src/lib/money';
-import { createTestPool, resetData, testAuthSettings } from './helpers';
+import { createTestPool, resetData, testAuthSettings, testBilling } from './helpers';
 
 let pool: Pool;
 beforeAll(async () => {
@@ -136,7 +136,7 @@ describe('withTransaction', () => {
 
 describe('app: health, errors, security headers', () => {
   const clock = new FakeClock('2026-03-01T10:00:00Z');
-  const makeApp = (p: Pool = pool) => createApp({ pool: p, clock, corsOrigins: ['http://allowed.test'], auth: testAuthSettings() });
+  const makeApp = (p: Pool = pool) => createApp({ pool: p, clock, corsOrigins: ['http://allowed.test'], auth: testAuthSettings(), billing: testBilling() });
 
   it('GET /health reports ok with DB connectivity and clock time', async () => {
     const res = await request(makeApp()).get('/health');

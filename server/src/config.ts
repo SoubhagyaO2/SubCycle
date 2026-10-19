@@ -1,6 +1,7 @@
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { parseMockFailMode, type MockFailMode } from './billing/mockProvider';
 
 const boolFlag = z
   .enum(['true', 'false'])
@@ -31,10 +32,17 @@ const schema = z.object({
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).optional(),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(15 * 60 * 1000),
+  MOCK_BILLING_FAIL: z.string().default('never'),
+  BILLING_TIMEOUT_MS: z.coerce.number().int().min(100).max(120_000).default(10_000),
+  RECONCILE_AFTER_MINUTES: z.coerce.number().int().min(1).default(5),
 });
 
 type RawConfig = z.infer<typeof schema>;
-export type Config = Omit<RawConfig, 'JWT_SECRET' | 'BCRYPT_COST'> & { JWT_SECRET: string; BCRYPT_COST: number };
+export type Config = Omit<RawConfig, 'JWT_SECRET' | 'BCRYPT_COST' | 'MOCK_BILLING_FAIL'> & {
+  JWT_SECRET: string;
+  BCRYPT_COST: number;
+  MOCK_BILLING_FAIL: MockFailMode;
+};
 
 /** Parses and validates environment variables. Never echoes values (they may contain secrets). */
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
@@ -60,7 +68,13 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   if (production && bcryptCost < 10) {
     throw new Error('Invalid environment configuration: BCRYPT_COST must be at least 10 in production');
   }
-  return { ...raw, JWT_SECRET: secret, BCRYPT_COST: bcryptCost };
+  let failMode: MockFailMode;
+  try {
+    failMode = parseMockFailMode(raw.MOCK_BILLING_FAIL);
+  } catch (err) {
+    throw new Error(`Invalid environment configuration: ${err instanceof Error ? err.message : 'MOCK_BILLING_FAIL'}`, { cause: err });
+  }
+  return { ...raw, JWT_SECRET: secret, BCRYPT_COST: bcryptCost, MOCK_BILLING_FAIL: failMode };
 }
 
 /** Loads the repo-root .env (if present) and returns validated config. */

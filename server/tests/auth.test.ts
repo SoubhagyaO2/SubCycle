@@ -9,7 +9,7 @@ import type { Pool } from '../src/db/pool';
 import { FakeClock } from '../src/lib/clock';
 import type { ErrorBody } from '../src/lib/errors';
 import { issueToken, verifyToken } from '../src/services/tokenService';
-import { createTestPool, resetData, testAuthSettings } from './helpers';
+import { createTestPool, resetData, testAuthSettings, testBilling } from './helpers';
 
 const START = '2026-03-01T10:00:00Z';
 const SECRET = testAuthSettings().tokens.secret;
@@ -20,7 +20,7 @@ let clock: FakeClock;
 let app: Express;
 
 const makeApp = (opts: Parameters<typeof testAuthSettings>[0] = {}, p: Pool = pool, c = clock) =>
-  createApp({ pool: p, clock: c, corsOrigins: [], auth: testAuthSettings(opts) });
+  createApp({ pool: p, clock: c, corsOrigins: [], auth: testAuthSettings(opts), billing: testBilling() });
 
 interface AuthBody {
   user: { id: string; email: string; name: string; createdAt: string };
