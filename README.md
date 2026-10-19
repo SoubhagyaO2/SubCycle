@@ -2,7 +2,7 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: Stage 2 (Auth) complete.** Billing, subscriptions, usage, jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: Stages 1-4 complete** (foundation, auth, billing layer, subscription lifecycle). Usage limits, renewal/reconciliation jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
 
 ## Prerequisites
 
@@ -46,6 +46,25 @@ All errors use `{ "error": { "code", "message", "details" } }`.
 | POST | `/auth/register` | no | `{ email, password (8–72 bytes), name }` → 201 `{ user, token, expiresAt }`; 409 `EMAIL_TAKEN`; 400 `VALIDATION_ERROR` |
 | POST | `/auth/login` | no | `{ email, password }` → 200 `{ user, token, expiresAt }`; 401 `INVALID_CREDENTIALS` (same for unknown email and wrong password) |
 | GET | `/auth/me` | Bearer | → `{ user }`; 401 `UNAUTHENTICATED` / `TOKEN_EXPIRED` |
+
+| GET | `/plans` | no | Plans and limits |
+| GET | `/subscriptions/current` | Bearer | Current (non-canceled) subscription incl. `accessAllowed`, `graceEndsAt`; 404 `SUBSCRIPTION_NOT_FOUND` |
+| GET | `/subscriptions/history` | Bearer | Audit events, oldest first |
+| GET | `/subscriptions/upgrade-preview?planId=` | Bearer | Prorated amount, never charges |
+| POST | `/subscriptions` | Bearer | `{ planId }` subscribe (201). Paid plans are charged via the two-phase flow |
+| POST | `/subscriptions/upgrade` | Bearer | `{ planId }` immediate, prorated |
+| POST | `/subscriptions/downgrade` | Bearer | `{ planId }` scheduled for period end (replaces a pending one) |
+| DELETE | `/subscriptions/pending-change` | Bearer | Remove the scheduled downgrade |
+| POST | `/subscriptions/pause` / `resume` | Bearer | Resume extends the period by the paused time |
+| POST | `/subscriptions/cancel` | Bearer | Schedules cancel at period end. In `past_due` keeps the 72 h grace; `{ "immediate": true }` (past_due only) cancels now |
+| POST | `/subscriptions/reactivate` | Bearer | Undo a scheduled cancel |
+| GET | `/invoices` | Bearer | The caller's invoices |
+
+Errors: `400 VALIDATION_ERROR`, `401`, `402 PAYMENT_FAILED`, `404`, `409 INVALID_TRANSITION | OPERATION_IN_PROGRESS | STATE_CHANGED | REQUEST_IN_PROGRESS`, `422 IDEMPOTENCY_KEY_REUSED`.
+
+**Idempotency-Key**: all `POST`/`DELETE` lifecycle endpoints accept an optional `Idempotency-Key` header (1-255 printable ASCII). A repeated identical request returns the original response with `Idempotent-Replay: true` and does not run again; the same key with a different request is a 422. A declined payment (402) is replayed for the same key, so retry with a new key. See [DECISIONS B7/B7a](docs/DECISIONS.md).
+
+**Billing safety model**: every charge is a durable `billing_operations` row written *before* the provider is called (two-phase). If the outcome is unknown (timeout, crash, lost response) the attempt stays `pending`; it is resolved by looking the same idempotency key up at the provider, either on the user's retry or by `reconcilePendingOperations`. A new attempt/key is only created after a definitive failure. The provider is the mock in `server/src/billing/mockProvider.ts` (`MOCK_BILLING_FAIL=never|always|random:p`).
 
 Send the token as `Authorization: Bearer <token>`. Tokens are HS256 JWTs (payload `sub`, `iat`, `exp` only), valid 1 h by default. `/auth/*` is rate limited per IP (default 20 / 15 min, `429 RATE_LIMITED`). Email is trimmed and lower-cased. Details and rationale: [docs/DECISIONS.md B14](docs/DECISIONS.md).
 

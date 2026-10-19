@@ -103,6 +103,16 @@ The 72-hour grace period is an explicit promise: a cancellation request **stops 
 - **Abandoned requests** (process died; `in_progress` and `locked_until < now`): the next request with the same key and hash **takes over** the row (extends `locked_until`) and re-runs the handler. This is safe because every charge inside is itself idempotent through `obligation_key` / attempt rules above — the re-run finds the existing operation instead of charging again.
 - Rows expire after 24 h (`expires_at`) and are purged opportunistically.
 
+### B7a. Stage 3/4 implementation notes (billing layer + subscription service)
+- **One in-flight charge per subscription** (not just per obligation): a pending charge on a subscription blocks any new charge for it (for an initial subscribe: per user). This also stops two simultaneous upgrades to *different* plans from both being charged.
+- **Succeeded-but-discarded attempts don't count as collected**: if a charge succeeded but its effect was discarded and refunded (B12), the obligation may be attempted again with the next attempt number.
+- **Declined payment** → HTTP 402 `PAYMENT_FAILED` (state unchanged); **unknown outcome / in-flight** → 409 `OPERATION_IN_PROGRESS`; **state changed during the charge** → 409 `STATE_CHANGED` (the charge is refunded). Failed upgrades keep a `failed` invoice; failed initial subscribes have no invoice (no subscription yet) and no failure event (the operation row is the record).
+- **HTTP idempotency storage rules**: 2xx and deterministic 4xx (including 402 `PAYMENT_FAILED`, so a new attempt needs a new key) are stored and replayed; 5xx and the transient codes `OPERATION_IN_PROGRESS`, `REQUEST_IN_PROGRESS`, `RATE_LIMITED` are **not** stored, so the same key can be retried and resumes the work.
+- **Event ordering**: migration `0005_event_sequence.sql` adds `subscription_events.seq` (identity). Events written by one transaction share a timestamp from the `Clock`; history orders by `(created_at, seq)`.
+- Operation rows' `created_at` / `updated_at` are set from the application `Clock` (not DB `now()`), so reconciliation age checks agree with the injected time in tests.
+- Lifecycle changes that do not charge (pause, resume, cancel, reactivate, downgrade, pending-change removal, zero-amount upgrade, free subscribe) run in a **single** transaction with their audit event.
+- `StripeProvider` is an unimplemented stub documenting the integration contract; `BillingProvider.charge` takes `userId` and a nullable `subscriptionId` (initial charges have no subscription yet).
+
 ### B8. Invoices — identity of a logical billing obligation (revised)
 - One invoice per **billing obligation**, identified by `invoices.obligation_key` (same string as `billing_operations.obligation_key`; globally `UNIQUE`). The invoice row is created in the Tx 2 of the first attempt outcome and **updated** (`failed` → `paid`) when a later attempt succeeds. Per-attempt history lives in `billing_operations`.
 - `plan_id` (plan being billed) is stored for display/reporting only; it is **not** part of any unique key.
@@ -123,7 +133,8 @@ The 72-hour grace period is an explicit promise: a cancellation request **stops 
 - **The provider refund call is never made inside a database transaction.**
 
 ### B11. Reconciliation
-- Operations `pending` for more than `RECONCILE_AFTER_MINUTES` (default 5) are resolved via `provider.lookup(idempotency_key)` per B7 rule 3. Selection uses `FOR UPDATE SKIP LOCKED` on the operation, then the subscription lock before applying outcomes (consistent lock order: subscription, then operation).
+- Operations `pending` for more than `RECONCILE_AFTER_MINUTES` (default 5) are resolved via `provider.lookup(idempotency_key)` per B7 rule 3. **Implemented in Stage 3/4** as `reconcilePendingOperations` (`services/reconciliationService.ts`); cron wiring comes with the jobs stage. Because the provider lookup happens outside any transaction, the reconciler lists candidates without locks and the *claim* happens in `settleCharge`, which locks the parent row and then the operation (consistent order: subscription/user, then operation) and re-checks `status = 'pending'`. This gives the same exclusion as `SKIP LOCKED` (a concurrent reconciler or user retry finds the operation already settled and does nothing) without holding a transaction across a network call.
+- A user **retry** that finds a pending attempt for the same subscription also resolves it first (lookup, then settle); it never creates a new attempt while one is unresolved. A provider call slower than `BILLING_TIMEOUT_MS` is treated as an unknown outcome, never as a failure.
 - Both pending **charges** and pending **refunds** are processed by this job. `billing_operations.resolve_attempts` and `last_checked_at` support back-off and alerting.
 
 ### B12. Tx 2 revalidation and compensation (revised)

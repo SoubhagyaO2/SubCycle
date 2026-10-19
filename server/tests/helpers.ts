@@ -1,3 +1,4 @@
+import { MockProvider } from '../src/billing/mockProvider';
 import { createPool, type Pool } from '../src/db/pool';
 import { seedPlans } from '../src/db/seed';
 import { testDatabaseUrl } from './testEnv';
@@ -73,4 +74,9 @@ export function testAuthSettings(overrides: { ttlSeconds?: number; max?: number;
     bcryptCost: 4,
     rateLimit: { windowMs: 60_000, max: overrides.max ?? 1000 },
   };
+}
+
+/** Billing deps for createApp in tests; pass your own MockProvider to script failures. */
+export function testBilling(provider: MockProvider = new MockProvider(), providerTimeoutMs = 5000) {
+  return { provider, providerTimeoutMs };
 }
