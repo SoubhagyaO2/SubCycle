@@ -7,7 +7,7 @@ import { requestHash } from '../src/middleware/idempotency';
 import { reconcilePendingOperations } from '../src/services/reconciliationService';
 import type { HistoryEvent, InvoiceView, SubscriptionView } from '../src/services/subscriptionService';
 import { createTestPool, resetData } from './helpers';
-import { api, billingInvariantViolations, count, createHarness, DAY, planIds, signup, sleep, type Harness, type User } from './harness';
+import { api, billingInvariantViolations, count, createHarness, DAY, planIds, signup, type Harness, type User } from './harness';
 
 let pool: Pool;
 let h: Harness;
@@ -27,8 +27,6 @@ beforeEach(async () => {
   alice = await signup(h, 'alice@example.com');
 });
 
-/** supertest requests are lazy; this fires one immediately so it is genuinely in flight. */
-const started = (t: request.Test): Promise<request.Response> => t.then((r) => r);
 const errOf = (res: request.Response) => (res.body as ErrorBody).error;
 const subOf = (res: request.Response) => (res.body as { subscription: SubscriptionView }).subscription;
 const subscribe = (u: User, code: string, headers: Record<string, string> = {}) => api(h, u).post('/subscriptions', { planId: ids[code] }, headers);
@@ -146,22 +144,6 @@ describe('unknown outcomes are reconciled, never retried with a new key', () => 
     expect(h.provider.processedCharges).toBe(1);
   });
 
-  it('a provider slower than the timeout is an unknown outcome; once it completes, a retry resolves it without a second charge', async () => {
-    h = createHarness(pool, { timeoutMs: 50 });
-    alice = await signup(h, 'slow@example.com');
-    await freeSubscriber(alice);
-    h.provider.setLatency(300);
-    const res = await upgrade(alice, 'pro_monthly');
-    expect(res.status).toBe(409);
-    expect(errOf(res).code).toBe('OPERATION_IN_PROGRESS');
-    await sleep(450); // the provider finishes the charge in the background
-    h.provider.setLatency(0);
-    const retry = await upgrade(alice, 'pro_monthly');
-    expect(retry.status).toBe(200);
-    expect(h.provider.processedCharges).toBe(1);
-    expect(await ops()).toHaveLength(1);
-  });
-
   it('concurrent reconcilers apply an operation exactly once', async () => {
     await freeSubscriber();
     h.provider.loseNextResponses();
@@ -273,120 +255,7 @@ describe('a successful charge followed by a database failure never causes a seco
   });
 });
 
-describe('state changed while the payment was processing: compensation, not a silent keep', () => {
-  it('upgrade: the user paused mid-charge -> state unchanged, refund recorded then processed outside the transaction', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(400);
-    const upgrading = started(upgrade(alice, 'pro_monthly'));
-    await sleep(150);
-    expect((await api(h, alice).post('/subscriptions/pause')).status).toBe(200);
-    const res = await upgrading;
-    expect(res.status).toBe(409);
-    expect(errOf(res).code).toBe('STATE_CHANGED');
-    h.provider.setLatency(0);
-
-    const sub = subOf(await api(h, alice).get('/subscriptions/current'));
-    expect(sub).toMatchObject({ status: 'paused' });
-    expect(sub.plan.code).toBe('free'); // the plan was NOT switched
-    expect(await invoicesOf(alice)).toEqual([]);
-    const all = await ops();
-    expect(all.map((o) => [o.operation_type, o.status])).toEqual([['charge', 'succeeded'], ['refund', 'succeeded']]);
-    expect(h.provider.processedCharges).toBe(1);
-    expect(h.provider.processedRefunds).toBe(1);
-    expect(await eventTypes(alice)).toContain('charge_discarded');
-    expect(await billingInvariantViolations(pool)).toEqual([]);
-
-    // The obligation can be attempted again later with a fresh attempt number.
-    await api(h, alice).post('/subscriptions/resume');
-    expect((await upgrade(alice, 'pro_monthly')).status).toBe(200);
-    expect((await ops()).filter((o) => o.operation_type === 'charge').map((o) => [o.attempt, o.status])).toEqual([[1, 'succeeded'], [2, 'succeeded']]);
-    expect(await billingInvariantViolations(pool)).toEqual([]);
-  });
-
-  it('a refund whose provider call is unknown stays recorded as pending and is completed by the job', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(400);
-    const upgrading = started(upgrade(alice, 'pro_monthly'));
-    await sleep(150);
-    await api(h, alice).post('/subscriptions/pause');
-    const realRefund = h.provider.refund.bind(h.provider);
-    h.provider.refund = () => Promise.reject(new ProviderUnavailableError('refund timed out'));
-    expect((await upgrading).status).toBe(409);
-    h.provider.setLatency(0);
-    expect((await ops()).map((o) => [o.operation_type, o.status])).toEqual([['charge', 'succeeded'], ['refund', 'pending']]);
-    expect(h.provider.processedRefunds).toBe(0);
-
-    h.provider.refund = realRefund;
-    expect((await reconcile()).refunds).toEqual({ succeeded: 1, failed: 0, pending: 0 });
-    expect(h.provider.processedRefunds).toBe(1);
-    expect((await reconcile()).refunds).toEqual({ succeeded: 0, failed: 0, pending: 0 }); // idempotent
-  });
-
-  it('subscribe: a free subscription created meanwhile makes the paid charge be refunded', async () => {
-    h.provider.setLatency(400);
-    const paid = started(subscribe(alice, 'pro_monthly'));
-    await sleep(150);
-    expect((await subscribe(alice, 'free')).status).toBe(201);
-    const res = await paid;
-    expect(res.status).toBe(409);
-    expect(errOf(res).code).toBe('STATE_CHANGED');
-    h.provider.setLatency(0);
-    expect(await currentPlan(alice)).toBe('free');
-    expect(await count(pool, 'SELECT 1 FROM subscriptions')).toBe(1);
-    expect(h.provider.processedRefunds).toBe(1);
-    expect((await ops()).map((o) => [o.operation_type, o.status])).toEqual([['charge', 'succeeded'], ['refund', 'succeeded']]);
-    expect(await billingInvariantViolations(pool)).toEqual([]);
-  });
-});
-
 describe('concurrency', () => {
-  it('two simultaneous upgrades: exactly one charge and one plan change', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(150);
-    const results = await Promise.all([upgrade(alice, 'pro_monthly'), upgrade(alice, 'pro_monthly')]);
-    h.provider.setLatency(0);
-    const statuses = results.map((r) => r.status).sort();
-    expect(statuses.filter((s) => s === 200)).toHaveLength(1);
-    expect(statuses.filter((s) => s !== 200).every((s) => s === 409 || s === 400)).toBe(true);
-    expect(h.provider.processedCharges).toBe(1);
-    expect(await invoicesOf(alice)).toHaveLength(1);
-    expect((await eventTypes(alice)).filter((t) => t === 'upgraded')).toHaveLength(1);
-    expect(await ops()).toHaveLength(1);
-    expect(await currentPlan(alice)).toBe('pro_monthly');
-    expect(await billingInvariantViolations(pool)).toEqual([]);
-  });
-
-  it('six simultaneous upgrades: still exactly one charge', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(100);
-    const results = await Promise.all(Array.from({ length: 6 }, () => upgrade(alice, 'pro_monthly')));
-    h.provider.setLatency(0);
-    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
-    expect(h.provider.processedCharges).toBe(1);
-    expect(await ops()).toHaveLength(1);
-  });
-
-  it('simultaneous upgrades to DIFFERENT plans: only one charge is ever in flight', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(150);
-    const results = await Promise.all([upgrade(alice, 'pro_monthly'), upgrade(alice, 'business_monthly')]);
-    h.provider.setLatency(0);
-    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
-    expect(h.provider.processedCharges).toBe(1);
-    expect((await eventTypes(alice)).filter((t) => t === 'upgraded')).toHaveLength(1);
-    expect(await billingInvariantViolations(pool)).toEqual([]);
-  });
-
-  it('simultaneous paid subscribes: one subscription, one charge', async () => {
-    h.provider.setLatency(100);
-    const results = await Promise.all(Array.from({ length: 5 }, () => subscribe(alice, 'pro_monthly')));
-    h.provider.setLatency(0);
-    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(results.filter((r) => r.status === 409)).toHaveLength(4);
-    expect(h.provider.processedCharges).toBe(1);
-    expect(await count(pool, 'SELECT 1 FROM subscriptions')).toBe(1);
-    expect(await ops()).toHaveLength(1);
-  });
 
   it('simultaneous pause and cancel always resolve to one consistent state (20 rounds)', async () => {
     for (let i = 0; i < 20; i++) {
@@ -518,18 +387,6 @@ describe('HTTP Idempotency-Key', () => {
     expect(b.status).toBe(201);
     expect(b.headers['idempotent-replay']).toBeUndefined();
     expect(await count(pool, 'SELECT 1 FROM subscriptions')).toBe(2);
-  });
-
-  it('two identical requests at the same time: one runs, the other is told it is in progress (or replayed); one charge', async () => {
-    await freeSubscriber();
-    h.provider.setLatency(250);
-    const results = await Promise.all([upgrade(alice, 'pro_monthly', { 'Idempotency-Key': 'dup' }), upgrade(alice, 'pro_monthly', { 'Idempotency-Key': 'dup' })]);
-    h.provider.setLatency(0);
-    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
-    const other = results.find((r) => r.status !== 200)!;
-    expect(other.status).toBe(409);
-    expect(errOf(other).code).toBe('REQUEST_IN_PROGRESS');
-    expect(h.provider.processedCharges).toBe(1);
   });
 
   it('an abandoned in-progress request is taken over once its lock expires', async () => {

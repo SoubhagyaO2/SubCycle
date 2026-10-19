@@ -162,10 +162,41 @@ A future `StripeProvider` also needs webhook ingestion (provider events de-dupli
 - These rules are covered by service tests in the stages that implement them (Stage 3/4); the schema already forbids dangling links (FKs) and duplicate refunds.
 
 ### B13. Usage metrics
-- Valid metrics are the keys of the current plan's `limits` JSON. Unknown metric → 400. Limit `0` means "not allowed" (always 429).
+- See B13a for the complete usage accounting and policy rules (valid metrics, `0`, `null`/unlimited, quantities).
 - Usage is recorded against the subscription's **actual stored** `current_period_start`; the free plan tracks usage too. Limits are tied to the real billing period (monthly or yearly per plan interval, never a hard-coded calendar month). Yearly plan limits (e.g. Pro Yearly `api_calls` = 60,000) are a documented product decision: a yearly subscriber gets 12× the monthly allowance over the year.
 - On plan change mid-period usage carries over; new limits apply immediately for upgrades.
 - Access: `active` allowed (including `cancel_at_period_end`); `past_due` per B1; `paused` / `canceled` / none → 402 (`SUBSCRIPTION_INACTIVE`). Usage after `current_period_end` for an `active` subscription not yet renewed (job lag) is allowed against the stale period (limitation).
+
+### B13a. Usage accounting semantics (designed BEFORE implementing enforcement)
+
+**Principle: usage is consumed if and only if the metered operation commits.** Never "increment, then let the request fail".
+
+1. **Atomic check-and-increment.** One conditional statement against PostgreSQL:
+   `INSERT INTO usage_records ... ON CONFLICT (subscription_id, metric, period_start) DO UPDATE SET quantity = usage_records.quantity + EXCLUDED.quantity WHERE <unlimited> OR usage_records.quantity + EXCLUDED.quantity <= :limit RETURNING quantity`.
+   The INSERT branch is guarded the same way (`WHERE :qty <= :limit`). No row returned = limit exceeded. PostgreSQL row-locks the counter on conflict and re-evaluates the `WHERE` against the latest committed value, so there is no read-then-write race; the limit holds under any concurrency. All-or-nothing: a request that does not fully fit consumes nothing (no partial consumption).
+2. **Subscription state is locked in the same transaction.** The check runs in one short transaction that first takes `SELECT … FROM subscriptions … FOR SHARE` on the caller's open subscription. Lifecycle changes use `FOR UPDATE`, so pause/cancel/upgrade/renewal and usage are serialized: usage can never be recorded for a subscription after a pause has committed ("pause freezes usage"), and limits are always evaluated against the plan that is current at that instant.
+3. **Metered DB work commits atomically with its usage (demo endpoint, `enforceLimit`).** `enforceLimit` opens a transaction, takes the share lock, consumes usage, and hands the transaction client to the handler (`req.meter.client`). The handler's own writes use that same client. The transaction is **finalized before the response is sent**: COMMIT if the response status is < 400, ROLLBACK otherwise. Consequences:
+   - rejected requests (402 / 429 / 400 / 401) consume nothing;
+   - handler errors or any ≥ 400 response roll the increment back;
+   - if COMMIT itself fails, the client receives **500** (never a success body) and nothing is consumed or persisted;
+   - a client that disconnects mid-request gets its transaction rolled back.
+4. **Real external work (cannot join the DB transaction).** If the work succeeds but the database commit fails there is no atomicity, so v1 documents (and `POST /usage` supports) this recommended protocol:
+   - **record-after-success** (default): do the external work with its own idempotency key, then `POST /usage` with `Idempotency-Key: <same request id>`. If the commit fails the caller retries the *same* key and usage is recorded **exactly once** (below). If the caller dies after the work but before recording, usage is **under-counted** (fail-open in the customer's favour). Limits are not enforced *before* the work in this mode.
+   - **reserve-first** (when the limit must hold before expensive work): `POST /usage` first, then do the work. If the work then fails, usage stays consumed (over-count, fail-closed). v1 has no negative adjustments/refunds of usage (`quantity > 0`); crediting back is a future feature.
+   - Choose per metric; the demo endpoint is the transactional case in (3).
+5. **Exactly-once recording via a ledger.** Every consumption writes a row to `usage_events` in the **same transaction** as the counter update. `POST /usage` accepts an optional `Idempotency-Key`; it is stored as `usage_events.request_key` with a partial unique index `(subscription_id, request_key)`. A retry with the same key inserts nothing, increments nothing and returns the original outcome with `replayed: true`; the same key with a different metric/quantity is `422 IDEMPOTENCY_KEY_REUSED`. Because the dedupe record and the counter change commit together, a crash can never leave one without the other (this is why `/usage` uses the ledger instead of the generic HTTP `Idempotency-Key` middleware, whose bookkeeping is a separate transaction). Invariant (tested): for every counter, `SUM(usage_events.quantity)` equals `usage_records.quantity`.
+6. **Concurrent same-key requests**: the second blocks on the unique index until the first commits or rolls back; if it committed the second is a replay, if it rolled back (e.g. 429) the second proceeds normally.
+
+**Policy for metrics and quantities**
+- **Valid metrics** are the keys of the *current plan's* `limits`. A metric not in `limits` → `400 UNKNOWN_METRIC` (it is not tracked on this plan; "missing" never means "unlimited"). Metric names match `^[a-z][a-z0-9_]{0,62}$`.
+- **Limit values**: a non-negative integer = cap; **`0` = not allowed** (always 429); **JSON `null` = unlimited** (never 429; counted for reporting); any other value (string, negative, fraction, boolean) is treated as **malformed and denies** (behaves as 0) rather than silently granting unlimited use.
+- **Quantity**: integer, `1 ≤ quantity ≤ 1,000,000`, strict JSON number (no strings, decimals, zero, negatives, null). Default quantity for `enforceLimit` is 1.
+- **Period scoping**: usage is keyed by the subscription's *stored* `current_period_start`. A renewal (new `current_period_start`) naturally starts fresh counters; old rows are kept. Pause/resume keep the same period (resume only moves `current_period_end`). An upgrade mid-period keeps the counters and applies the new plan's limits immediately; a scheduled downgrade has no effect until the period rolls. `GET /usage` lists the metrics of the current plan (counters for metrics that left the plan are not shown).
+- **Access policy** (single function `hasAccess`): `active` ✓ (also with `cancel_at_period_end`); `past_due` ✓ strictly before `past_due_since + 72h`, ✗ from that instant; `paused` ✗; `canceled`/no subscription ✗. `POST /usage` and the demo endpoint return **402**: `SUBSCRIPTION_REQUIRED` (no open subscription) or `SUBSCRIPTION_INACTIVE` (paused / grace expired, with `details.status` and `details.graceEndsAt`). `GET /usage` is read-only and works whenever an open subscription exists (including paused, so users can see their usage; it reports `accessAllowed`); with no open subscription it is `404 SUBSCRIPTION_NOT_FOUND`.
+- **Limit exceeded**: `429 LIMIT_EXCEEDED`, `details: { metric, limit, used, remaining, requested, periodEnd }`. Distinct from the rate limiter's `429 RATE_LIMITED`.
+- **Rate limiting**: `/usage` and `/demo/*` have a per-user limiter (default 600 requests / minute, `USAGE_RATE_LIMIT_MAX`, `USAGE_RATE_LIMIT_WINDOW_MS`).
+- **Stale period**: an `active` subscription whose `current_period_end` has passed but that the (future) renewal job has not yet rolled keeps accruing usage against its old period (documented limitation, unchanged).
+- **Schema**: migration `0006` adds `usage_events` (ledger) and `demo_reports` (the demo's metered work, each report referencing exactly one usage event).
 
 ### B14. Auth (detailed for Stage 2)
 - bcrypt cost 12 by default (`BCRYPT_COST`; 4 under `NODE_ENV=test` for speed). Passwords: 8 to 72 **bytes** (bcrypt ignores bytes beyond 72, so longer passwords are rejected rather than silently truncated).
