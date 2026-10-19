@@ -2,7 +2,7 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: foundation, auth, billing layer, subscription lifecycle, usage limits and the renewal/reconciliation jobs are complete.** The React UI arrives in the next stage. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: backend (foundation, auth, billing, lifecycle, usage, jobs) and the React frontend are complete.** Remaining: final polish (CI, security review, API reference). See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
 
 ## Prerequisites
 
@@ -36,6 +36,30 @@ Check it: `curl http://localhost:4000/health`.
 | `npm run db:seed` | Upsert seed plans |
 | `npm run db:reset` | **Drops** the `public` schema, re-migrates and re-seeds. Dev/test only. Refuses `NODE_ENV=production` and non-local hosts (unless `ALLOW_DB_RESET=true`) |
 
+## Running the app
+
+```bash
+npm run db:up && npm run db:migrate && npm run db:seed
+npm run dev          # API on http://localhost:4000, web on http://localhost:5173 (proxies /api -> the API)
+```
+
+Open http://localhost:5173, register, pick a plan. To try renewals without waiting a month, run the API with `FAKE_CLOCK=true` and use `POST /dev/advance-clock` / `POST /dev/run-renewals` (see below); sign in again after big clock jumps because tokens expire on the fake clock.
+Production build: `npm run build` (static files in `client/dist`). Serve them behind a reverse proxy that forwards `/api/*` to the API with the prefix removed, or build with `VITE_API_URL=https://api.example.com` (then the API's `CORS_ORIGINS` must list the site origin).
+
+### Screens
+
+| Route | Screen |
+|---|---|
+| `/login`, `/register` | Sign in / create account (client validation mirrors the server; server errors shown; session persists; expired sessions return here with a message) |
+| `/` | Dashboard: plan, status badge, period, renewal / grace information, scheduled downgrade or cancellation, usage versus limits |
+| `/pricing` | Plans from the API; subscribe (payment confirmation dialog) |
+| `/manage` | Upgrade with a server-side price preview, schedule/remove a downgrade, pause/resume, cancel at period end, reactivate, cancel immediately (past_due) |
+| `/usage` | Usage versus limits, usage history, the demo report generator (server-enforced limit) |
+| `/invoices` | Invoices (paid / failed / refunded), payment attempts and refunds (pending, failed, failed refunds flagged), billing policies |
+| `/history` | Subscription event timeline (renewals, failed payments, plan changes) |
+
+The UI follows the server's state, never dates: see [DECISIONS B20](docs/DECISIONS.md) and B19.
+
 ## API (so far)
 
 All errors use `{ "error": { "code", "message", "details" } }`.
@@ -59,6 +83,8 @@ All errors use `{ "error": { "code", "message", "details" } }`.
 | POST | `/subscriptions/cancel` | Bearer | Schedules cancel at period end. In `past_due` keeps the 72 h grace; `{ "immediate": true }` (past_due only) cancels now |
 | POST | `/subscriptions/reactivate` | Bearer | Undo a scheduled cancel |
 | GET | `/invoices` | Bearer | The caller's invoices |
+| GET | `/billing/operations` | Bearer | The caller's payment attempts and refunds (pending, succeeded, failed), read-only |
+| GET | `/usage/history` | Bearer | Per-period usage totals (most recent first), read-only |
 
 | GET | `/usage` | Bearer | Usage vs limits for every metric of the current plan, scoped to the stored billing period. Works while paused (read-only) |
 | POST | `/usage` | Bearer | `{ metric, quantity }` (integer 1..1,000,000); optional `Idempotency-Key` makes recording exactly-once. 201 (or 200 `replayed:true`); 402 `SUBSCRIPTION_REQUIRED`/`SUBSCRIPTION_INACTIVE`; 429 `LIMIT_EXCEEDED` with `limit`, `used`, `remaining` |
@@ -72,7 +98,7 @@ Errors: `400 VALIDATION_ERROR`, `401`, `402 PAYMENT_FAILED`, `404`, `402 SUBSCRI
 
 **Billing safety model**: every charge is a durable `billing_operations` row written *before* the provider is called (two-phase). If the outcome is unknown (timeout, crash, lost response) the attempt stays `pending`; it is resolved by looking the same idempotency key up at the provider, either on the user's retry or by `reconcilePendingOperations`. A new attempt/key is only created after a definitive failure. The provider is the mock in `server/src/billing/mockProvider.ts` (`MOCK_BILLING_FAIL=never|always|random:p`).
 
-Send the token as `Authorization: Bearer <token>`. Tokens are HS256 JWTs (payload `sub`, `iat`, `exp` only), valid 1 h by default. `/auth/*` is rate limited per IP (default 20 / 15 min, `429 RATE_LIMITED`). Email is trimmed and lower-cased. Details and rationale: [docs/DECISIONS.md B14](docs/DECISIONS.md).
+Send the token as `Authorization: Bearer <token>`. Tokens are HS256 JWTs (payload `sub`, `iat`, `exp` only), valid 1 h by default. `POST /auth/register` and `/auth/login` are rate limited per IP (default 20 / 15 min, `429 RATE_LIMITED`); `GET /auth/me` has only the generous per-user limit. Email is trimmed and lower-cased. Details and rationale: [docs/DECISIONS.md B14](docs/DECISIONS.md).
 
 Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**; dev/test fall back to a fixed non-secret value), `JWT_EXPIRES_IN_SECONDS`, `BCRYPT_COST`, `AUTH_RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_WINDOW_MS`.
 
@@ -103,6 +129,12 @@ Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**
 | pro_yearly | Pro (Yearly) | year | ₹4,999 | 60,000 | 10 | 3 |
 
 ## Testing
+
+`npm test` runs the server suite, then the client suite. The client suite has three layers:
+- **Unit / component tests** (jsdom, `fetch` mocked at the network boundary, every request recorded): API client, idempotency-key rules, every screen and state, accessibility (axe, keyboard, focus trap).
+- **Real-backend tests** (`client/tests/integration`): the UI rendered in jsdom talks over HTTP to the **real** Express server (spawned with the fake clock, jobs off) and the real PostgreSQL test database. They reset the test database, so they must not run at the same time as the server tests (the root `npm test` runs them one after the other). Needs `npm run db:up`.
+- Frontend only: `npm run test:client`; backend only: `npm run test:server`.
+
 
 Concurrency tests are deterministic: instead of sleeping, they park a request inside the mock provider (`provider.holdNextCharge()`) or behind a real PostgreSQL lock (`waitUntilBlocked`) and release it explicitly. Tests that start requests simultaneously assert only order-independent invariants.
 

@@ -12,7 +12,7 @@ import type { JobSettings } from './controllers/devController';
 import { authRoutes } from './routes/auth';
 import { devRoutes } from './routes/dev';
 import { healthRoutes } from './routes/health';
-import { demoRoutes, usageRoutes } from './routes/usage';
+import { billingRoutes, demoRoutes, usageRoutes } from './routes/usage';
 import { invoiceRoutes, planRoutes, subscriptionRoutes } from './routes/subscriptions';
 import type { BillingDeps } from './services/billingOperations';
 import type { TokenSettings } from './services/tokenService';
@@ -50,15 +50,19 @@ export function createApp({ pool, clock, corsOrigins, auth, billing, usageRateLi
   const billingDeps: BillingDeps = { pool, clock, provider: billing.provider, providerTimeoutMs: billing.providerTimeoutMs };
 
   app.use(healthRoutes(pool, clock));
-  app.use('/auth', authRoutes({ pool, clock, tokens: auth.tokens, bcryptCost: auth.bcryptCost }, createRateLimiter(auth.rateLimit), requireAuth));
+  // Per-USER limiter (runs after authentication): /auth/me, /usage, /demo. The strict per-IP one covers register and login only.
+  const perUser = (settings: RateLimitSettings) => createRateLimiter(settings, (req) => req.user?.id ?? 'anonymous');
+  const userLimits = usageRateLimit ?? { windowMs: 60_000, max: 600 };
+  app.use('/auth', authRoutes({ pool, clock, tokens: auth.tokens, bcryptCost: auth.bcryptCost }, createRateLimiter(auth.rateLimit), requireAuth, perUser(userLimits)));
   app.use('/plans', planRoutes(billingDeps));
   app.use('/invoices', invoiceRoutes(billingDeps, requireAuth));
   app.use('/subscriptions', subscriptionRoutes(billingDeps, requireAuth, idempotency({ pool, clock })));
 
-  // Per-USER limiter (runs after authentication), separate from the per-plan LIMIT_EXCEEDED.
-  const usageLimiter = createRateLimiter(usageRateLimit ?? { windowMs: 60_000, max: 600 }, (req) => req.user?.id ?? 'anonymous');
+  // Separate from the per-plan LIMIT_EXCEEDED.
+  const usageLimiter = perUser(userLimits);
   app.use('/usage', usageRoutes({ pool, clock }, requireAuth, usageLimiter));
   app.use('/demo', demoRoutes({ pool, clock }, requireAuth, usageLimiter));
+  app.use('/billing', billingRoutes({ pool, clock }, requireAuth));
 
   if (dev) app.use('/dev', devRoutes(billingDeps, jobs ?? { reconcileAfterMs: 5 * 60_000, batchSize: 100 }, dev.fakeClock, requireAuth));
 
