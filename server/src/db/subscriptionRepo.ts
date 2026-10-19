@@ -48,15 +48,13 @@ export type EventType =
   | 'canceled'
   | 'charge_discarded';
 
-const PLAN_COLUMNS = 'id, code, name, price_cents, interval, limits';
-
 export async function listPlans(q: Queryable): Promise<PlanRow[]> {
-  const { rows } = await q.query<PlanRow>(`SELECT ${PLAN_COLUMNS} FROM plans ORDER BY price_cents, interval, code`);
+  const { rows } = await q.query<PlanRow>('SELECT id, code, name, price_cents, interval, limits FROM plans ORDER BY price_cents, interval, code');
   return rows;
 }
 
 export async function getPlan(q: Queryable, id: string): Promise<PlanRow | null> {
-  const { rows } = await q.query<PlanRow>(`SELECT ${PLAN_COLUMNS} FROM plans WHERE id = $1`, [id]);
+  const { rows } = await q.query<PlanRow>('SELECT id, code, name, price_cents, interval, limits FROM plans WHERE id = $1', [id]);
   return rows[0] ?? null;
 }
 

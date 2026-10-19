@@ -9,3 +9,5 @@ coverage/
 .DS_Store
 .vscode/
 *.tsbuildinfo
+e2e/node_modules/
+e2e/screenshots/

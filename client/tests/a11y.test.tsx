@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { configureAxe } from 'jest-axe';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -41,7 +41,7 @@ describe('automated accessibility checks (axe)', () => {
       await screen.findByRole('region', { name: 'Current plan' });
       await screen.findByRole('progressbar', { name: 'API calls used' });
       expect((await axe(container)).violations).toEqual([]);
-      document.body.innerHTML = '';
+      cleanup();
     }
   });
 

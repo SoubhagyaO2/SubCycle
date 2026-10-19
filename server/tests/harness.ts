@@ -19,15 +19,15 @@ export interface Harness {
   deps: BillingDeps;
 }
 
-export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider; usageMax?: number; dev?: boolean; fakeClockEnabled?: boolean } = {}): Harness {
+export function createHarness(pool: Pool, opts: { start?: string; timeoutMs?: number; provider?: MockProvider; usageMax?: number; dev?: boolean; fakeClockEnabled?: boolean; corsOrigins?: string[]; authMax?: number } = {}): Harness {
   const clock = new FakeClock(opts.start ?? T0);
   const provider = opts.provider ?? new MockProvider();
   const timeoutMs = opts.timeoutMs ?? 5000;
   const app = createApp({
     pool,
     clock,
-    corsOrigins: [],
-    auth: testAuthSettings({ ttlSeconds: 10 * 365 * 86_400 }), // tokens must outlive the fake clock jumps
+    corsOrigins: opts.corsOrigins ?? [],
+    auth: testAuthSettings({ ttlSeconds: 10 * 365 * 86_400, ...(opts.authMax ? { max: opts.authMax } : {}) }), // tokens must outlive the fake clock jumps
     billing: { provider, providerTimeoutMs: timeoutMs },
     usageRateLimit: { windowMs: 60_000, max: opts.usageMax ?? 100_000 },
     ...(opts.dev ? { dev: { fakeClock: opts.fakeClockEnabled === false ? null : clock } } : {}),

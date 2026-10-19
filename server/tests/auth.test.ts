@@ -403,7 +403,7 @@ describe('config for authentication', () => {
     expect(parseConfig({ ...base }).JWT_EXPIRES_IN_SECONDS).toBe(3600);
   });
   it('fails startup in production without a strong, non-default JWT_SECRET', () => {
-    const prod = { ...base, NODE_ENV: 'production' };
+    const prod = { ...base, NODE_ENV: 'production', CORS_ORIGINS: 'https://app.example.com' }; // production also requires an explicit CORS allow-list
     expect(() => parseConfig(prod)).toThrow(/JWT_SECRET/);
     expect(() => parseConfig({ ...prod, JWT_SECRET: 'short' })).toThrow(/JWT_SECRET/);
     expect(() => parseConfig({ ...prod, JWT_SECRET: DEV_JWT_SECRET })).toThrow(/JWT_SECRET/);

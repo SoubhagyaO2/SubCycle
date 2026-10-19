@@ -188,11 +188,20 @@ export async function runRenewals(deps: BillingDeps, opts: { batchSize?: number 
 export interface JobCycleSummary {
   reconciliation: ReconcileSummary;
   renewals: RenewalSummary;
+  /** Expired HTTP idempotency records removed (housekeeping; keeps the table bounded). */
+  purgedIdempotencyKeys: number;
+}
+
+/** Deletes HTTP idempotency records past their 24 h expiry. They are never needed again: an expired key is reusable anyway. */
+export async function purgeExpiredIdempotencyKeys(deps: Pick<BillingDeps, 'pool' | 'clock'>): Promise<number> {
+  const { rowCount } = await deps.pool.query('DELETE FROM idempotency_keys WHERE expires_at <= $1', [deps.clock.now()]);
+  return rowCount ?? 0;
 }
 
 /** One scheduler tick: first recover unresolved money movements, then renew. Safe to run repeatedly and concurrently. */
 export async function runJobCycle(deps: BillingDeps, opts: { reconcileAfterMs: number; batchSize?: number }): Promise<JobCycleSummary> {
   const reconciliation = await reconcilePendingOperations(deps, { olderThanMs: opts.reconcileAfterMs });
   const renewals = await runRenewals(deps, opts.batchSize === undefined ? {} : { batchSize: opts.batchSize });
-  return { reconciliation, renewals };
+  const purgedIdempotencyKeys = await purgeExpiredIdempotencyKeys(deps);
+  return { reconciliation, renewals, purgedIdempotencyKeys };
 }

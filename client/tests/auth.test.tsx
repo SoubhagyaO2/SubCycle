@@ -156,10 +156,22 @@ describe('persistent login and expired sessions', () => {
 
   it('a session that expires mid-use sends the user to login with a message', async () => {
     signIn();
-    signedInApi().on('GET /usage', err(401, 'TOKEN_EXPIRED', 'Token has expired')).install();
+    const api = signedInApi();
+    api.install();
     renderApp('/');
     await screen.findByRole('heading', { name: 'Dashboard' });
+    await screen.findByRole('progressbar', { name: 'API calls used' }); // the dashboard has fully loaded while the session is still valid
+    api.on('GET /usage', err(401, 'TOKEN_EXPIRED', 'Token has expired')); // ...and the token expires while the user keeps using the app
     await userEvent.click(screen.getByRole('link', { name: 'Usage' }));
+    expect(await screen.findByRole('heading', { name: 'Sign in to your account' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('expired');
+    expect(stored()).toBeNull();
+  });
+
+  it('a session that expires while the first screen is still loading also ends cleanly at the login screen', async () => {
+    signIn();
+    signedInApi().on('GET /usage', err(401, 'TOKEN_EXPIRED', 'Token has expired')).install();
+    renderApp('/');
     expect(await screen.findByRole('heading', { name: 'Sign in to your account' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('expired');
     expect(stored()).toBeNull();

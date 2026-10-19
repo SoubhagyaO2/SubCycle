@@ -1,0 +1,14 @@
+{
+  "name": "@subcycle/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional real-browser suite. Deliberately NOT a workspace of the root package, so normal installs and CI never download Chromium.",
+  "scripts": {
+    "check": "node browser-check.mjs",
+    "start": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.64.1"
+  }
+}

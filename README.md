@@ -2,7 +2,18 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: backend (foundation, auth, billing, lifecycle, usage, jobs) and the React frontend are complete.** Remaining: final polish (CI, security review, API reference). See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: v1 complete** (backend, jobs, React frontend, CI, security review, API reference). Billing is **mock-only**: no real payment gateway is connected. Read [Known limitations](docs/KNOWN_LIMITATIONS.md) before using this for anything real.
+
+## Documentation
+
+| Document | What it is |
+|---|---|
+| [docs/API.md](docs/API.md) | API reference: routes, auth, examples captured from the running server, status codes, error shape, idempotency |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security review: checklist with the test that enforces each control, deployment settings, residual risks |
+| [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | What v1 deliberately does not do (mock billing, in-process scheduling, catch-up billing, drift, failed refunds, localStorage JWT, no admin view, …) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Every design decision and its rationale (B1 grace, B7 idempotency, B13a usage accounting, B19 period boundary and jobs, B20 frontend, B21 polish) |
+| [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md) | Subscription states and transitions |
+| [docs/SPEC.md](docs/SPEC.md) | The original specification |
 
 ## Prerequisites
 
@@ -34,6 +45,8 @@ Check it: `curl http://localhost:4000/health`.
 | `npm run db:up` / `db:down` | Start / stop the PostgreSQL container |
 | `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `npm run db:seed` | Upsert seed plans |
+| `npm run db:check-fresh` | Creates a throwaway empty database and verifies migrations (apply, re-run no-op), repeatable seeding and the schema; drops it again (used by CI) |
+| `npm run e2e` | Optional real-browser suite (Playwright/Chromium): starts the built API and web app, runs the checks. One-time setup: `npm ci --prefix e2e && npx --prefix e2e playwright install chromium` |
 | `npm run db:reset` | **Drops** the `public` schema, re-migrates and re-seeds. Dev/test only. Refuses `NODE_ENV=production` and non-local hosts (unless `ALLOW_DB_RESET=true`) |
 
 ## Running the app
@@ -60,7 +73,9 @@ Production build: `npm run build` (static files in `client/dist`). Serve them be
 
 The UI follows the server's state, never dates: see [DECISIONS B20](docs/DECISIONS.md) and B19.
 
-## API (so far)
+## API summary
+
+The complete reference (request/response examples, status codes, error catalogue, idempotency rules) is [docs/API.md](docs/API.md); a test keeps it in step with the code. Summary:
 
 All errors use `{ "error": { "code", "message", "details" } }`.
 
@@ -139,6 +154,19 @@ Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**
 Concurrency tests are deterministic: instead of sleeping, they park a request inside the mock provider (`provider.holdNextCharge()`) or behind a real PostgreSQL lock (`waitUntilBlocked`) and release it explicitly. Tests that start requests simultaneously assert only order-independent invariants.
 
 `npm test` resets and migrates the **test** database (`TEST_DATABASE_URL`, whose name must end in `_test`) once, then runs test files serially, truncating data tables between tests. The migration tests use a throwaway database that they create and drop.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and every pull request, in one job against a PostgreSQL 16 service:
+`npm ci` → typecheck → lint → production builds → **fresh-database migration and seed check** (`npm run db:check-fresh`) → migrate/seed the dev database → **server tests, then client tests** → dependency audit.
+The two suites are separate steps of the *same* job on purpose: both reset and use `TEST_DATABASE_URL`, so they must never run in parallel (do not split them into parallel jobs without giving each its own database).
+[`.github/workflows/e2e-browser.yml`](.github/workflows/e2e-browser.yml) is a **separate, optional** workflow (manual and weekly) that runs the Playwright browser suite, so Chromium downloads never block normal CI.
+
+Test-suite guards worth knowing: concurrency/lock tests use deterministic barriers (a gate inside the mock provider, `waitUntilBlocked` on real PostgreSQL lock waits) and were mutation-checked, so larger timeouts only affect how long a *failing* run takes; and the client suite fails any test during which jsdom reports an unsupported operation such as a hard page navigation.
+
+## Security
+
+See [docs/SECURITY.md](docs/SECURITY.md). Highlights: every route is classified and documented (a test fails otherwise); strict validation on every input; per-user isolation verified with full-table snapshots; production cannot enable the dev clock/renewal endpoints; no cacheable responses; text-only rendering in the UI with lint bans on raw HTML. The JWT lives in `localStorage` (documented trade-off).
 
 ## Troubleshooting
 

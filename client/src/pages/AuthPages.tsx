@@ -9,6 +9,11 @@ import { useAuth } from '../context/AuthContext';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_PASSWORD_BYTES = 72; // bcrypt ignores anything longer; the server rejects it
 
+/** Only same-site paths are valid post-login targets (never a full URL or a protocol-relative `//host`). */
+export function safeRedirect(target: unknown): string {
+  return typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !target.includes('\\') ? target : '/';
+}
+
 export interface FieldErrors {
   email?: string;
   password?: string;
@@ -40,7 +45,7 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const { status, login, register, sessionMessage, clearSessionMessage } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? '/';
+  const from = safeRedirect((location.state as { from?: unknown } | null)?.from);
   const [values, setValues] = useState({ email: '', password: '', name: '' });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);

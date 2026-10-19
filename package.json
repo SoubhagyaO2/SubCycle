@@ -21,7 +21,9 @@
     "db:seed": "npm run db:seed -w server",
     "db:reset": "npm run db:reset -w server",
     "test:server": "npm run test -w server",
-    "test:client": "npm run test -w client"
+    "test:client": "npm run test -w client",
+    "db:check-fresh": "npm run db:check-fresh -w server",
+    "e2e": "node e2e/run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
