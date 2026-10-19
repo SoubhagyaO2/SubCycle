@@ -2,7 +2,7 @@
 
 Subscription lifecycle management: plans, proration, pause/resume, scheduled cancel/downgrade, usage limits and automated renewals, with a mock billing provider.
 
-> **Status: foundation, auth, billing layer, subscription lifecycle and usage limits are complete.** Renewal/reconciliation jobs and the UI arrive in later stages. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
+> **Status: foundation, auth, billing layer, subscription lifecycle, usage limits and the renewal/reconciliation jobs are complete.** The React UI arrives in the next stage. See [docs/SPEC.md](docs/SPEC.md), [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md).
 
 ## Prerequisites
 
@@ -75,6 +75,16 @@ Errors: `400 VALIDATION_ERROR`, `401`, `402 PAYMENT_FAILED`, `404`, `402 SUBSCRI
 Send the token as `Authorization: Bearer <token>`. Tokens are HS256 JWTs (payload `sub`, `iat`, `exp` only), valid 1 h by default. `/auth/*` is rate limited per IP (default 20 / 15 min, `429 RATE_LIMITED`). Email is trimmed and lower-cased. Details and rationale: [docs/DECISIONS.md B14](docs/DECISIONS.md).
 
 Auth environment variables: `JWT_SECRET` (**required, 32+ chars, in production**; dev/test fall back to a fixed non-secret value), `JWT_EXPIRES_IN_SECONDS`, `BCRYPT_COST`, `AUTH_RATE_LIMIT_MAX`, `AUTH_RATE_LIMIT_WINDOW_MS`.
+
+## Jobs: renewals, retries, reconciliation, refunds
+
+`server.ts` starts a `node-cron` job (default every minute, `JOBS_CRON`; disable with `RUN_JOBS=false`). Each cycle first reconciles pending billing operations and processes pending refunds, then renews due subscriptions. It is idempotent and safe to run in several processes at once: every subscription is claimed with `FOR UPDATE SKIP LOCKED`, due-ness is re-checked under the lock, and charges are protected by the durable-operation / obligation-key design below.
+
+- **Strict period boundary:** an active subscription has no access from `current_period_end` (the same instant the job treats it as due). See [B19](docs/DECISIONS.md).
+- **Renewal order:** cancellation wins (finalized with no charge) → pending downgrade decides the next plan → free renewals roll without a provider call → paid renewals use the two-phase charge. The new period starts at the OLD period end.
+- **Failures:** first failure → `past_due` (72 h grace, retries at +1/+2/+3 days anchored to the first failure; the retry at the grace end is still attempted; after 3 failed retries, or a failed final attempt at/after grace end, cancel with `payment_failed`). A user cancel in `past_due` stops retries and is finalized at the grace end without a charge.
+- **Unknown outcomes** (timeout, lost response, crash, DB failure after the provider took the money) are resolved by looking up the original idempotency key, never by a new attempt. Refunds follow the same rule: unknown outcome ⇒ retried with the same key; definitive failure ⇒ kept as a `failed` operation record (visible in the cycle summary).
+- **Dev only** (authenticated, never mounted in production): `POST /dev/run-renewals` runs a cycle now; with `FAKE_CLOCK=true`, `POST /dev/advance-clock` takes exactly one of `{ "days": n }`, `{ "ms": n }`, `{ "to": "<ISO timestamp>" }` (forward only).
 
 ## Database
 

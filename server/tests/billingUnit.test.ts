@@ -124,15 +124,24 @@ describe('addInterval (UTC, day clamping)', () => {
   });
 });
 
-describe('hasAccess (grace period)', () => {
+describe('hasAccess (period boundary and grace period)', () => {
   const since = d('2026-01-10T12:00:00Z');
-  it('active: yes. paused/canceled: no', () => {
-    expect(hasAccess({ status: 'active', pastDueSince: null }, since)).toBe(true);
-    expect(hasAccess({ status: 'paused', pastDueSince: null }, since)).toBe(false);
-    expect(hasAccess({ status: 'canceled', pastDueSince: null }, since)).toBe(false);
+  const end = d('2026-02-01T00:00:00Z');
+  const snap = (status: SubscriptionStatus, pastDueSince: Date | null = null) => ({ status, pastDueSince, currentPeriodEnd: end });
+
+  it('active: yes strictly before the stored period end, NO at exactly the end and after (stale periods get no access)', () => {
+    expect(hasAccess(snap('active'), d('2026-01-15T00:00:00Z'))).toBe(true);
+    expect(hasAccess(snap('active'), new Date(end.getTime() - 1))).toBe(true);
+    expect(hasAccess(snap('active'), end)).toBe(false);
+    expect(hasAccess(snap('active'), new Date(end.getTime() + 1))).toBe(false);
+    expect(hasAccess(snap('active'), d('2026-06-01T00:00:00Z'))).toBe(false);
   });
-  it('past_due: allowed strictly before 72h, blocked at exactly 72h and after', () => {
-    const sub = { status: 'past_due' as const, pastDueSince: since };
+  it('paused/canceled: never', () => {
+    expect(hasAccess(snap('paused'), since)).toBe(false);
+    expect(hasAccess(snap('canceled'), since)).toBe(false);
+  });
+  it('past_due: allowed strictly before 72h, blocked at exactly 72h and after, regardless of the (ended) period', () => {
+    const sub = { status: 'past_due' as const, pastDueSince: since, currentPeriodEnd: d('2026-01-01T00:00:00Z') };
     expect(GRACE_PERIOD_MS).toBe(72 * 3_600_000);
     expect(graceEndsAt(since).toISOString()).toBe('2026-01-13T12:00:00.000Z');
     expect(hasAccess(sub, since)).toBe(true);
@@ -141,7 +150,7 @@ describe('hasAccess (grace period)', () => {
     expect(hasAccess(sub, new Date(since.getTime() + GRACE_PERIOD_MS + 1))).toBe(false);
   });
   it('past_due without a timestamp has no access (defensive)', () => {
-    expect(hasAccess({ status: 'past_due', pastDueSince: null }, since)).toBe(false);
+    expect(hasAccess(snap('past_due'), since)).toBe(false);
   });
 });
 
@@ -158,13 +167,13 @@ describe('state machine: every action x status x flags', () => {
       case 'subscribe':
         return false; // only valid with NO subscription
       case 'upgrade':
-        return s.status === 'active';
+        return s.status === 'active' && s.currentPeriodEnd.getTime() > NOW.getTime(); // not once the period has ended
       case 'downgrade':
         return s.status === 'active' || s.status === 'paused';
       case 'removePendingChange':
         return ['active', 'paused', 'past_due'].includes(s.status) && s.hasPendingPlan;
       case 'pause':
-        return s.status === 'active';
+        return s.status === 'active' && s.currentPeriodEnd.getTime() > NOW.getTime();
       case 'resume':
         return s.status === 'paused';
       case 'cancel':
@@ -229,6 +238,17 @@ describe('state machine: every action x status x flags', () => {
     expect(decide('reactivate', snap('paused', { cancelAtPeriodEnd: true }), NOW)).toMatchObject({ kind: 'conflict', reason: 'reactivate_while_paused' });
     expect(decide('reactivate', snap('active', { cancelAtPeriodEnd: true, currentPeriodEnd: END_PAST }), NOW)).toMatchObject({ kind: 'conflict', reason: 'period_already_ended' });
     expect(decide('removePendingChange', snap('active'), NOW)).toMatchObject({ kind: 'conflict', reason: 'no_pending_change' });
+  });
+
+  it('upgrade and pause are refused once the period has ended but renewal has not run (renewal_due); cancel/downgrade still work', () => {
+    const due: SubscriptionSnapshot = { status: 'active', cancelAtPeriodEnd: false, hasPendingPlan: false, currentPeriodEnd: NOW };
+    expect(decide('upgrade', due, NOW)).toMatchObject({ ok: false, kind: 'conflict', reason: 'renewal_due' });
+    expect(decide('pause', due, NOW)).toMatchObject({ ok: false, kind: 'conflict', reason: 'renewal_due' });
+    expect(decide('cancel', due, NOW).ok).toBe(true);
+    expect(decide('downgrade', due, NOW).ok).toBe(true);
+    const justBefore = { ...due, currentPeriodEnd: new Date(NOW.getTime() + 1) };
+    expect(decide('upgrade', justBefore, NOW).ok).toBe(true);
+    expect(decide('pause', justBefore, NOW).ok).toBe(true);
   });
 
   it('a pending downgrade survives pause (downgrade/remove allowed while paused)', () => {

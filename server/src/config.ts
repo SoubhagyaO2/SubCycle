@@ -34,13 +34,19 @@ const schema = z.object({
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(15 * 60 * 1000),
   USAGE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(600),
   USAGE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
+  RUN_JOBS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  JOBS_CRON: z.string().min(1).default('* * * * *'),
+  JOBS_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(100),
+  ENABLE_DEV_ENDPOINTS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   MOCK_BILLING_FAIL: z.string().default('never'),
   BILLING_TIMEOUT_MS: z.coerce.number().int().min(100).max(120_000).default(10_000),
   RECONCILE_AFTER_MINUTES: z.coerce.number().int().min(1).default(5),
 });
 
 type RawConfig = z.infer<typeof schema>;
-export type Config = Omit<RawConfig, 'JWT_SECRET' | 'BCRYPT_COST' | 'MOCK_BILLING_FAIL'> & {
+export type Config = Omit<RawConfig, 'JWT_SECRET' | 'BCRYPT_COST' | 'MOCK_BILLING_FAIL' | 'ENABLE_DEV_ENDPOINTS'> & {
+  /** /dev/* is mounted only outside production AND when ENABLE_DEV_ENDPOINTS is true. */
+  DEV_ENDPOINTS: boolean;
   JWT_SECRET: string;
   BCRYPT_COST: number;
   MOCK_BILLING_FAIL: MockFailMode;
@@ -76,7 +82,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   } catch (err) {
     throw new Error(`Invalid environment configuration: ${err instanceof Error ? err.message : 'MOCK_BILLING_FAIL'}`, { cause: err });
   }
-  return { ...raw, JWT_SECRET: secret, BCRYPT_COST: bcryptCost, MOCK_BILLING_FAIL: failMode };
+  const { ENABLE_DEV_ENDPOINTS, ...rest } = raw;
+  return { ...rest, DEV_ENDPOINTS: !production && ENABLE_DEV_ENDPOINTS, JWT_SECRET: secret, BCRYPT_COST: bcryptCost, MOCK_BILLING_FAIL: failMode };
 }
 
 /** Loads the repo-root .env (if present) and returns validated config. */
