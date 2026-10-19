@@ -40,10 +40,26 @@ export interface AppDeps {
 }
 
 export function createApp({ pool, clock, corsOrigins, auth, billing, usageRateLimit, jobs, dev }: AppDeps): Express {
+  // Defence in depth: the dev routes (fake clock, run-renewals) must be impossible to mount in production,
+  // whatever the caller passes in. server.ts also never passes them (config.DEV_ENDPOINTS is forced off).
+  if (dev && process.env.NODE_ENV === 'production') {
+    throw new Error('Refusing to mount /dev/* routes when NODE_ENV=production');
+  }
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
-  app.use(cors({ origin: corsOrigins, methods: ['GET', 'POST', 'DELETE', 'OPTIONS'] }));
+  app.use(
+    cors({
+      origin: corsOrigins, // explicit allow-list; no wildcard, no credentials (the API uses bearer tokens, not cookies)
+      methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+      exposedHeaders: ['Idempotent-Replay', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'],
+    }),
+  );
+  // Responses carry personal and billing data: never let a browser or shared proxy cache them.
+  app.use((_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(express.json({ limit: '100kb' }));
 
   const requireAuth = authenticate({ pool, clock, tokens: auth.tokens });

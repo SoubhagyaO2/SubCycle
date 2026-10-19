@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: subcycle_local_pw
       POSTGRES_DB: subcycle_dev
     ports:
-      - "5433:5432"
+      # Bound to localhost only: the local dev password is weak and must never be reachable from the network.
+      - "127.0.0.1:5433:5432"
     volumes:
       - subcycle_pgdata:/var/lib/postgresql/data
       - ./docker/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro

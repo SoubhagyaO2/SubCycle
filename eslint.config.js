@@ -31,10 +31,28 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': 'off' },
   },
   {
+    // Optional browser suite: Node scripts that also run code inside the page (page.evaluate).
+    files: ['e2e/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     files: ['client/**/*.{ts,tsx}'],
     extends: [...tseslint.configs.recommended],
     plugins: { 'react-hooks': reactHooks },
     languageOptions: { globals: globals.browser },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // XSS hygiene: the UI renders API data as text only. Raw HTML and dynamic code execution are forbidden.
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'no-script-url': 'error',
+      'no-restricted-syntax': [
+        'error',
+        { selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']", message: 'Do not render raw HTML; render data as text.' },
+        { selector: "AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]", message: 'Do not assign HTML strings; render data as text.' },
+        { selector: "CallExpression[callee.property.name='insertAdjacentHTML']", message: 'Do not insert HTML strings.' },
+      ],
+    },
   },
 );

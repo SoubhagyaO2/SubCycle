@@ -12,6 +12,7 @@ import { api, createHarness, DAY, planIds, signup, T0, waitFor, type Harness, ty
 const emptySummary = (): JobCycleSummary => ({
   reconciliation: { examined: 0, applied: 0, declined: 0, discarded: 0, alreadySettled: 0, unresolved: 0, refunds: { succeeded: 0, failed: 0, pending: 0 } },
   renewals: { examined: 0, outcomes: { not_due: 0, locked: 0, renewed: 0, canceled: 0, declined: 0, discarded: 0, in_progress: 0, resolved_pending: 0 }, errors: [] },
+  purgedIdempotencyKeys: 0,
 });
 
 describe('job runner (overlap guard and error containment)', () => {
@@ -102,7 +103,7 @@ describe('configuration', () => {
     expect(c).toMatchObject({ RUN_JOBS: true, JOBS_CRON: '* * * * *', JOBS_BATCH_SIZE: 100, DEV_ENDPOINTS: true });
   });
   it('dev endpoints are forced OFF in production even if enabled', () => {
-    const prod = { ...base, NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40) };
+    const prod = { ...base, NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(40), CORS_ORIGINS: 'https://app.example.com' };
     expect(parseConfig({ ...prod, ENABLE_DEV_ENDPOINTS: 'true' }).DEV_ENDPOINTS).toBe(false);
     expect(parseConfig({ ...base, ENABLE_DEV_ENDPOINTS: 'false' }).DEV_ENDPOINTS).toBe(false);
   });

@@ -64,6 +64,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): Config {
   if (production && raw.FAKE_CLOCK) {
     throw new Error('Invalid environment configuration: FAKE_CLOCK must not be enabled in production');
   }
+  if (production && !env.CORS_ORIGINS?.trim()) {
+    throw new Error('Invalid environment configuration: CORS_ORIGINS must be set explicitly in production (comma-separated list of allowed site origins)');
+  }
   let secret = raw.JWT_SECRET;
   if (production) {
     if (!secret || secret.length < MIN_PRODUCTION_SECRET_LENGTH || secret === DEV_JWT_SECRET) {

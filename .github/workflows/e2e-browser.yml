@@ -1,0 +1,63 @@
+name: Browser e2e (optional)
+
+# Separate from the required CI on purpose: Chromium downloads are large and occasionally flaky, and this suite
+# is slower. It catches real-browser regressions (layout at phone and desktop widths, keyboard/focus behaviour,
+# the full subscribe -> upgrade -> billing flow against the real backend). Run it before a release, or on demand.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Playwright (Chromium) against the real stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: subcycle
+          POSTGRES_PASSWORD: subcycle_ci_password
+          POSTGRES_DB: subcycle_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U subcycle -d subcycle_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://subcycle:subcycle_ci_password@localhost:5432/subcycle_dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Install the e2e package and Chromium
+        run: |
+          npm ci --prefix e2e
+          npx --prefix e2e playwright install --with-deps chromium
+
+      - name: Run the browser suite (starts the API and the built web app itself)
+        run: npm run e2e
+
+      - name: Keep screenshots if it failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/screenshots
+          if-no-files-found: ignore
