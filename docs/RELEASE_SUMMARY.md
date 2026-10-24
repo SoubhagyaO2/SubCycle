@@ -48,7 +48,7 @@ React 19 + Vite + Tailwind  ──/api──►  Express 5 (TypeScript)  ──p
 | Server tests / client tests | 409 / 186 passed, run twice, sequentially (they share the test database) |
 | Browser suite (Chromium) | 42/42 |
 | `npm audit` | 0 vulnerabilities |
-| GitHub Actions (CI) | passing on `58ea78b` (2 m 43 s) |
+| GitHub Actions (CI) | passing on `d808e13`, tagged `v1.0.0-rc.1` (run #3, 1 m 57 s); run #2 failed once for an unexplained reason, see [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) |
 
 ## Run it
 
