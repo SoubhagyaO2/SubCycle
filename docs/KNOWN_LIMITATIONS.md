@@ -40,4 +40,5 @@ Related: [SECURITY.md](SECURITY.md) (residual risks), [DECISIONS.md](DECISIONS.m
 | **Single language, INR, UTC** | Dates are displayed in UTC (labelled); amounts in INR. |
 | **Browser suite is optional** | Real-browser regressions are covered by the opt-in Playwright workflow (`npm run e2e`, `.github/workflows/e2e-browser.yml`), not by the required CI. Responsive layout and real-keyboard behaviour are otherwise only covered by jsdom/axe tests. |
 | **Fake-clock sessions** | With `FAKE_CLOCK=true` (development only) tokens expire on the fake clock, so large clock jumps require signing in again. |
+| **One unexplained CI failure** | CI run #2 (docs-only commit `326d93d`) failed with "Process completed with exit code 1"; the failed step's log was not captured. Runs #1 and #3 passed. The cause is unknown, not confirmed flaky. If it recurs, capture the failing step's log before changing anything. |
 | **Tests share one database** | The server suite and the client's real-backend suite both reset `TEST_DATABASE_URL`; they must run one after the other (the root `npm test` and CI do). |
