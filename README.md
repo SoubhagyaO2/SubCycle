@@ -8,6 +8,7 @@ Subscription lifecycle management: plans, proration, pause/resume, scheduled can
 
 | Document | What it is |
 |---|---|
+| [docs/RELEASE_SUMMARY.md](docs/RELEASE_SUMMARY.md) | One-page overview: architecture, the hard problems and how they were solved, testing strategy, results |
 | [docs/API.md](docs/API.md) | API reference: routes, auth, examples captured from the running server, status codes, error shape, idempotency |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security review: checklist with the test that enforces each control, deployment settings, residual risks |
 | [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | What v1 deliberately does not do (mock billing, in-process scheduling, catch-up billing, drift, failed refunds, localStorage JWT, no admin view, …) |
