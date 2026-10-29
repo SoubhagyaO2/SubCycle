@@ -13,7 +13,7 @@ import { useResource } from '../hooks/useResource';
 import { formatMoney } from '../lib/format';
 
 const linkButton =
-  'inline-flex min-h-10 w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium ring-1 ring-inset ring-indigo-300 text-indigo-800 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600';
+  'inline-flex min-h-10 w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium ring-1 ring-inset ring-brand-300 text-brand-800 hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600';
 
 function relationTo(plan: Plan, sub: Subscription): 'current' | 'scheduled' | 'upgrade' | 'downgrade' | 'other_interval' {
   if (plan.id === sub.plan.id) return 'current';
@@ -60,9 +60,9 @@ export function PricingPage() {
       {plans.data && (
         <>
           {state === 'ready' && subscription && (
-            <p className="mb-4 text-sm text-slate-700">
+            <p className="mb-4 text-sm text-ink-2">
               You are on <strong>{subscription.plan.name}</strong>. Upgrade or schedule a downgrade on the{' '}
-              <Link to="/manage" className="font-medium text-indigo-700 underline underline-offset-2">
+              <Link to="/manage" className="font-medium text-brand-700 underline underline-offset-2">
                 Manage plan
               </Link>{' '}
               page. Switching between monthly and yearly billing is not supported yet.
@@ -75,7 +75,7 @@ export function PricingPage() {
               return (
                 <li key={plan.id}>
                   <PlanCard plan={plan} badges={badges} heading="h2">
-                    {state === 'loading' && <p className="text-sm text-slate-600">Checking your subscription…</p>}
+                    {state === 'loading' && <p className="text-sm text-muted">Checking your subscription…</p>}
                     {state === 'none' && (
                       <Button className="w-full" onClick={() => setTarget(plan)} disabled={busy}>
                         {plan.priceCents === 0 ? 'Start for free' : 'Subscribe'}
@@ -91,7 +91,7 @@ export function PricingPage() {
                         Schedule downgrade
                       </Link>
                     )}
-                    {rel === 'other_interval' && <p className="text-xs text-slate-600">Switching between monthly and yearly billing is not supported yet.</p>}
+                    {rel === 'other_interval' && <p className="text-xs text-muted">Switching between monthly and yearly billing is not supported yet.</p>}
                   </PlanCard>
                 </li>
               );

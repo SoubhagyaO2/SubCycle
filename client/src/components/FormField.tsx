@@ -12,18 +12,18 @@ export function FormField({ label, error, hint, id, className = '', ...input }: 
   const describedBy = [hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
   return (
     <div>
-      <label htmlFor={inputId} className="block text-sm font-medium text-slate-800">
+      <label htmlFor={inputId} className="block text-sm font-medium text-ink">
         {label}
       </label>
       <input
         id={inputId}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
-        className={`mt-1 block min-h-10 w-full rounded-md border px-3 py-2 text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-600 ${error ? 'border-red-500' : 'border-slate-300'} ${className}`}
+        className={`mt-1 block min-h-10 w-full rounded-md border bg-surface-2 text-ink px-3 py-2 text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-600 ${error ? 'border-red-400' : 'border-line'} ${className}`}
         {...input}
       />
       {hint && (
-        <p id={`${inputId}-hint`} className="mt-1 text-xs text-slate-600">
+        <p id={`${inputId}-hint`} className="mt-1 text-xs text-muted">
           {hint}
         </p>
       )}

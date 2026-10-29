@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Subscription } from '../api/types';
 import { formatDate, formatDateTime, formatPrice } from '../lib/format';
@@ -76,40 +77,62 @@ export function SubscriptionSummary({ sub, manageLink = false }: { sub: Subscrip
   const endValue = sub.status === 'past_due' && sub.graceEndsAt ? formatDateTime(sub.graceEndsAt) : formatDate(sub.currentPeriodEnd);
 
   return (
-    <section aria-labelledby="plan-heading" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 id="plan-heading" className="text-sm font-medium text-slate-600">
-            Current plan
-          </h2>
-          <p className="text-2xl font-semibold text-slate-900">{sub.plan.name}</p>
-          <p className="text-sm text-slate-700">{formatPrice(sub.plan.priceCents, sub.plan.interval)}</p>
+    <section aria-labelledby="plan-heading" className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+      <div className="bg-gradient-to-b from-brand-100 to-surface px-5 pb-4 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="plan-heading" className="text-sm font-medium text-brand-800">
+              Current plan
+            </h2>
+            <p className="text-4xl font-extrabold tracking-tight text-brand-600">{sub.plan.name}</p>
+            <p className="text-sm text-ink-2">{formatPrice(sub.plan.priceCents, sub.plan.interval)}</p>
+          </div>
+          <StatusBadge phase={phase} />
         </div>
-        <StatusBadge phase={phase} />
+        <PeriodTrack start={sub.currentPeriodStart} end={sub.currentPeriodEnd} />
       </div>
-      <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="text-slate-600">Current period</dt>
-          <dd className="font-medium text-slate-900">
-            {formatDate(sub.currentPeriodStart)} – {formatDate(sub.currentPeriodEnd)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-slate-600">{endLabel}</dt>
-          <dd className="font-medium text-slate-900">{endValue}</dd>
-        </div>
-        <div>
-          <dt className="text-slate-600">Access</dt>
-          <dd className="font-medium text-slate-900">{sub.accessAllowed ? 'Allowed' : 'Not allowed right now'}</dd>
-        </div>
-      </dl>
-      {manageLink && (
-        <p className="mt-4">
-          <Link to="/manage" className="text-sm font-medium text-indigo-700 underline underline-offset-2">
-            Manage plan
-          </Link>
-        </p>
-      )}
+      <div className="p-5 pt-3">
+        <dl className="grid overflow-hidden rounded-xl border border-line text-sm sm:grid-cols-3 sm:divide-x sm:divide-line max-sm:divide-y max-sm:divide-line">
+          <div className="p-3 text-center">
+            <dt className="text-muted">Current period</dt>
+            <dd className="font-semibold text-ink">
+              {formatDate(sub.currentPeriodStart)} – {formatDate(sub.currentPeriodEnd)}
+            </dd>
+          </div>
+          <div className="p-3 text-center">
+            <dt className="text-muted">{endLabel}</dt>
+            <dd className="font-semibold text-ink">{endValue}</dd>
+          </div>
+          <div className="p-3 text-center">
+            <dt className="text-muted">Access</dt>
+            <dd className="font-semibold text-ink">{sub.accessAllowed ? 'Allowed' : 'Not allowed right now'}</dd>
+          </div>
+        </dl>
+        {manageLink && (
+          <p className="mt-4">
+            <Link to="/manage" className="text-sm font-medium text-brand-700 underline underline-offset-2">
+              Manage plan
+            </Link>
+          </p>
+        )}
+      </div>
     </section>
+  );
+}
+
+/**
+ * Decorative progress through the billing period. Purely visual (hidden from assistive technology): it never decides access
+ * or state, which come from the server (B19), and the dates are already shown in text.
+ */
+function PeriodTrack({ start, end }: { start: string; end: string }) {
+  const from = Date.parse(start);
+  const to = Date.parse(end);
+  // Read once when the card appears; the bar is a glance, not a clock.
+  const [now] = useState(() => Date.now());
+  const pct = to > from ? Math.min(100, Math.max(0, Math.round(((now - from) / (to - from)) * 100))) : 0;
+  return (
+    <div aria-hidden="true" className="mt-4 h-3 overflow-hidden rounded-full bg-surface ring-1 ring-line">
+      <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600" style={{ width: `${pct}%` }} />
+    </div>
   );
 }
