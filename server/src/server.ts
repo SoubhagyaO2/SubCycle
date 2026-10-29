@@ -17,6 +17,7 @@ const app = createApp({
   pool,
   clock,
   corsOrigins: config.CORS_ORIGINS,
+  trustProxy: config.TRUST_PROXY,
   auth: {
     tokens: { secret: config.JWT_SECRET, ttlSeconds: config.JWT_EXPIRES_IN_SECONDS },
     bcryptCost: config.BCRYPT_COST,
