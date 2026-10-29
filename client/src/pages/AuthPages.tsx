@@ -85,9 +85,9 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
     <>
     <DemoNotice />
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10">
-      <h1 className="text-center text-2xl font-bold tracking-tight text-indigo-700">SubCycle</h1>
-      <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{isLogin ? 'Sign in to your account' : 'Create your account'}</h2>
+      <h1 className="text-center text-2xl font-bold tracking-tight text-brand-700">SubCycle</h1>
+      <div className="mt-6 rounded-2xl border border-line bg-surface p-6 shadow-card">
+        <h2 className="text-lg font-semibold text-ink">{isLogin ? 'Sign in to your account' : 'Create your account'}</h2>
         {sessionMessage && isLogin && (
           <Banner tone="warn" className="mt-4">
             {sessionMessage}
@@ -116,18 +116,18 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
           </Button>
         </form>
         {!isLogin && <PasswordReuseWarning />}
-        <p className="mt-4 text-center text-sm text-slate-600">
+        <p className="mt-4 text-center text-sm text-muted">
           {isLogin ? (
             <>
               New to SubCycle?{' '}
-              <Link to="/register" state={location.state} className="font-medium text-indigo-700 underline underline-offset-2">
+              <Link to="/register" state={location.state} className="font-medium text-brand-700 underline underline-offset-2">
                 Create an account
               </Link>
             </>
           ) : (
             <>
               Already have an account?{' '}
-              <Link to="/login" state={location.state} className="font-medium text-indigo-700 underline underline-offset-2">
+              <Link to="/login" state={location.state} className="font-medium text-brand-700 underline underline-offset-2">
                 Sign in
               </Link>
             </>

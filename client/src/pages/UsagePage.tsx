@@ -25,15 +25,15 @@ export function UsagePage() {
     <>
       <PageHeader title="Usage" />
       <div className="space-y-6">
-        <section aria-labelledby="current-usage" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 id="current-usage" className="text-lg font-semibold text-slate-900">
+        <section aria-labelledby="current-usage" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 id="current-usage" className="text-lg font-semibold text-ink">
             This billing period
           </h2>
           {usage.loading && <LoadingState label="Loading usage" />}
           {usage.error && !usage.data && (
             usage.error.code === 'SUBSCRIPTION_NOT_FOUND' ? (
               <div className="mt-3">
-                <EmptyState title="No subscription" action={<Link to="/pricing" className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Choose a plan</Link>}>
+                <EmptyState title="No subscription" action={<Link to="/pricing" className="rounded-md bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Choose a plan</Link>}>
                   Usage is tracked once you have a plan.
                 </EmptyState>
               </div>
@@ -43,7 +43,7 @@ export function UsagePage() {
           )}
           {usage.data && (
             <>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted">
                 {formatDate(usage.data.period.start)} – {formatDate(usage.data.period.end)}. Counters reset when the next period starts.
               </p>
               {!usage.data.subscription.accessAllowed && (
@@ -51,7 +51,7 @@ export function UsagePage() {
                   The server is not allowing usage for your subscription right now (status: {usage.data.subscription.status.replace('_', ' ')}). Check the dashboard for details.
                 </Banner>
               )}
-              <ul className="mt-2 divide-y divide-slate-100">
+              <ul className="mt-2 divide-y divide-line">
                 {usage.data.usage.map((m) => (
                   <UsageBar key={m.metric} metric={m} />
                 ))}
@@ -62,8 +62,8 @@ export function UsagePage() {
 
         <DemoPanel onChanged={() => { usage.reload(); history.reload(); }} />
 
-        <section aria-labelledby="usage-history" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 id="usage-history" className="text-lg font-semibold text-slate-900">
+        <section aria-labelledby="usage-history" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 id="usage-history" className="text-lg font-semibold text-ink">
             Usage history
           </h2>
           {history.loading && <LoadingState label="Loading usage history" />}
@@ -77,13 +77,13 @@ export function UsagePage() {
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[28rem] text-left text-sm">
                 <caption className="sr-only">Usage per billing period, newest first</caption>
-                <thead className="border-b border-slate-200 text-slate-600">
+                <thead className="border-b border-line text-muted">
                   <tr>
                     <th scope="col" className="py-2 pr-3 font-medium">Period starting</th>
                     <th scope="col" className="py-2 font-medium">Usage</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {history.data.map((p) => (
                     <tr key={p.periodStart}>
                       <td className="py-3 pr-3 whitespace-nowrap align-top">
@@ -137,11 +137,11 @@ function DemoPanel({ onChanged }: { onChanged: () => void }) {
   };
 
   return (
-    <section aria-labelledby="demo-heading" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 id="demo-heading" className="text-lg font-semibold text-slate-900">
+    <section aria-labelledby="demo-heading" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+      <h2 id="demo-heading" className="text-lg font-semibold text-ink">
         Demo: generate a report
       </h2>
-      <p className="mt-1 text-sm text-slate-600">Each report uses 1 API call. The limit is enforced by the server, and usage is only counted when the report is actually created.</p>
+      <p className="mt-1 text-sm text-muted">Each report uses 1 API call. The limit is enforced by the server, and usage is only counted when the report is actually created.</p>
       <div className="mt-4">
         <Button onClick={() => void generate()} loading={busy}>
           Generate report
@@ -154,12 +154,12 @@ function DemoPanel({ onChanged }: { onChanged: () => void }) {
       )}
       {reports.length > 0 && (
         <div className="mt-4">
-          <h3 className="text-sm font-semibold text-slate-900">Generated in this session</h3>
-          <ul className="mt-1 divide-y divide-slate-100 text-sm">
+          <h3 className="text-sm font-semibold text-ink">Generated in this session</h3>
+          <ul className="mt-1 divide-y divide-line text-sm">
             {reports.map((r) => (
               <li key={r.id} className="flex flex-wrap justify-between gap-2 py-2">
                 <span>{r.title}</span>
-                <span className="text-slate-600">{formatDateTime(r.generatedAt)}</span>
+                <span className="text-muted">{formatDateTime(r.generatedAt)}</span>
               </li>
             ))}
           </ul>

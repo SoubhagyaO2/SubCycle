@@ -36,8 +36,8 @@ export function BillingPage() {
           </Banner>
         )}
 
-        <section aria-labelledby="invoices-heading" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 id="invoices-heading" className="text-lg font-semibold text-slate-900">
+        <section aria-labelledby="invoices-heading" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 id="invoices-heading" className="text-lg font-semibold text-ink">
             Invoices
           </h2>
           {invoices.loading && <LoadingState label="Loading invoices" />}
@@ -52,15 +52,15 @@ export function BillingPage() {
               {invoices.data.map((inv) => {
                 const st = invoiceStatus(inv.status);
                 return (
-                  <li key={inv.id} className="rounded-md border border-slate-200 p-3">
+                  <li key={inv.id} className="rounded-md border border-line p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-medium text-slate-900">{INVOICE_KIND[inv.kind]}</p>
-                        <p className="text-xs text-slate-600">{inv.description}</p>
+                        <p className="font-medium text-ink">{INVOICE_KIND[inv.kind]}</p>
+                        <p className="text-xs text-muted">{inv.description}</p>
                       </div>
                       <Badge tone={st.tone}>{st.label}</Badge>
                     </div>
-                    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-slate-700">
+                    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-ink-2">
                       <dt>Amount</dt>
                       <dd className="font-medium">{formatMoney(inv.amountCents)}</dd>
                       <dt>Date</dt>
@@ -77,7 +77,7 @@ export function BillingPage() {
             <div className="mt-3 hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[34rem] text-left text-sm">
                 <caption className="sr-only">Invoices, newest first</caption>
-                <thead className="border-b border-slate-200 text-slate-600">
+                <thead className="border-b border-line text-muted">
                   <tr>
                     <th scope="col" className="py-2 pr-3 font-medium">Date</th>
                     <th scope="col" className="py-2 pr-3 font-medium">Description</th>
@@ -86,15 +86,15 @@ export function BillingPage() {
                     <th scope="col" className="py-2 font-medium">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {invoices.data.map((inv) => {
                     const st = invoiceStatus(inv.status);
                     return (
                       <tr key={inv.id}>
                         <td className="py-3 pr-3 whitespace-nowrap">{formatDate(inv.createdAt)}</td>
                         <td className="py-3 pr-3">
-                          <span className="font-medium text-slate-900">{INVOICE_KIND[inv.kind]}</span>
-                          <span className="block text-xs text-slate-600">{inv.description}</span>
+                          <span className="font-medium text-ink">{INVOICE_KIND[inv.kind]}</span>
+                          <span className="block text-xs text-muted">{inv.description}</span>
                         </td>
                         <td className="py-3 pr-3 whitespace-nowrap">{formatDate(inv.billingPeriodStart)}</td>
                         <td className="py-3 pr-3 text-right whitespace-nowrap">{formatMoney(inv.amountCents)}</td>
@@ -110,11 +110,11 @@ export function BillingPage() {
           )}
         </section>
 
-        <section aria-labelledby="attempts-heading" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 id="attempts-heading" className="text-lg font-semibold text-slate-900">
+        <section aria-labelledby="attempts-heading" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 id="attempts-heading" className="text-lg font-semibold text-ink">
             Payment attempts and refunds
           </h2>
-          <p className="mt-1 text-sm text-slate-600">Every attempt to collect or return money, including ones that failed or are still being confirmed.</p>
+          <p className="mt-1 text-sm text-muted">Every attempt to collect or return money, including ones that failed or are still being confirmed.</p>
           {operations.loading && <LoadingState label="Loading payment attempts" />}
           {operations.error && !operations.data && <ErrorState error={operations.error} onRetry={operations.reload} title="Could not load payment attempts" />}
           {operations.data && ops.length === 0 && (
@@ -127,18 +127,18 @@ export function BillingPage() {
               {ops.map((op) => {
                 const st = operationStatus(op);
                 return (
-                  <li key={op.id} className="rounded-md border border-slate-200 p-3">
+                  <li key={op.id} className="rounded-md border border-line p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-medium text-slate-900">{operationLabel(op)}</p>
-                        {op.attempt > 1 && op.type === 'charge' && <p className="text-xs text-slate-600">Attempt {op.attempt}</p>}
+                        <p className="font-medium text-ink">{operationLabel(op)}</p>
+                        {op.attempt > 1 && op.type === 'charge' && <p className="text-xs text-muted">Attempt {op.attempt}</p>}
                       </div>
                       <Badge tone={st.tone}>{st.label}</Badge>
                     </div>
-                    <p className="mt-2 text-xs text-slate-700">
+                    <p className="mt-2 text-xs text-ink-2">
                       <span className="font-medium">{formatMoney(op.amountCents)}</span> · {formatDateTime(op.createdAt)}
                     </p>
-                    {st.note && <p className="mt-1 text-xs text-slate-700">{st.note}</p>}
+                    {st.note && <p className="mt-1 text-xs text-ink-2">{st.note}</p>}
                   </li>
                 );
               })}
@@ -148,7 +148,7 @@ export function BillingPage() {
             <div className="mt-3 hidden overflow-x-auto sm:block">
               <table className="w-full min-w-[34rem] text-left text-sm">
                 <caption className="sr-only">Payment attempts and refunds, newest first</caption>
-                <thead className="border-b border-slate-200 text-slate-600">
+                <thead className="border-b border-line text-muted">
                   <tr>
                     <th scope="col" className="py-2 pr-3 font-medium">Time</th>
                     <th scope="col" className="py-2 pr-3 font-medium">What</th>
@@ -156,20 +156,20 @@ export function BillingPage() {
                     <th scope="col" className="py-2 font-medium">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {ops.map((op) => {
                     const st = operationStatus(op);
                     return (
                       <tr key={op.id}>
                         <td className="py-3 pr-3 whitespace-nowrap align-top">{formatDateTime(op.createdAt)}</td>
                         <td className="py-3 pr-3 align-top">
-                          <span className="font-medium text-slate-900">{operationLabel(op)}</span>
-                          {op.attempt > 1 && op.type === 'charge' && <span className="block text-xs text-slate-600">Attempt {op.attempt}</span>}
+                          <span className="font-medium text-ink">{operationLabel(op)}</span>
+                          {op.attempt > 1 && op.type === 'charge' && <span className="block text-xs text-muted">Attempt {op.attempt}</span>}
                         </td>
                         <td className="py-3 pr-3 text-right whitespace-nowrap align-top">{formatMoney(op.amountCents)}</td>
                         <td className="py-3 align-top">
                           <Badge tone={st.tone}>{st.label}</Badge>
-                          {st.note && <p className="mt-1 max-w-md text-xs text-slate-700">{st.note}</p>}
+                          {st.note && <p className="mt-1 max-w-md text-xs text-ink-2">{st.note}</p>}
                         </td>
                       </tr>
                     );
@@ -180,11 +180,11 @@ export function BillingPage() {
           )}
         </section>
 
-        <section aria-labelledby="billing-notes" className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 id="billing-notes" className="text-lg font-semibold text-slate-900">
+        <section aria-labelledby="billing-notes" className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+          <h2 id="billing-notes" className="text-lg font-semibold text-ink">
             How billing works
           </h2>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-ink-2">
             <li>Renewals are charged at the end of each period, and access stops at that moment until the renewal has been processed (usually within a minute).</li>
             <li>If a renewal payment fails you keep access for 72 hours while we retry (after about 1, 2 and 3 days). If it still fails, the subscription is canceled.</li>
             <li>

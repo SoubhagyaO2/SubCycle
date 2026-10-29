@@ -1,10 +1,10 @@
 import { PHASE_LABEL, PHASE_TONE, type Phase, type Tone } from '../lib/subscriptionState';
 
 const TONES: Record<Tone, string> = {
-  good: 'bg-emerald-100 text-emerald-900 ring-emerald-600/30',
-  warn: 'bg-amber-100 text-amber-900 ring-amber-600/30',
-  bad: 'bg-red-100 text-red-900 ring-red-600/30',
-  neutral: 'bg-slate-100 text-slate-800 ring-slate-500/30',
+  good: 'bg-emerald-50 text-emerald-800 ring-emerald-600/30',
+  warn: 'bg-amber-50 text-amber-800 ring-amber-600/30',
+  bad: 'bg-red-50 text-red-800 ring-red-600/30',
+  neutral: 'bg-surface-2 text-ink-2 ring-line',
 };
 
 export function Badge({ tone, children }: { tone: Tone; children: React.ReactNode }) {
