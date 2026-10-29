@@ -11,6 +11,7 @@ Subscription lifecycle management: plans, proration, pause/resume, scheduled can
 | [docs/RELEASE_SUMMARY.md](docs/RELEASE_SUMMARY.md) | One-page overview: architecture, the hard problems and how they were solved, testing strategy, results |
 | [docs/API.md](docs/API.md) | API reference: routes, auth, examples captured from the running server, status codes, error shape, idempotency |
 | [docs/SECURITY.md](docs/SECURITY.md) | Security review: checklist with the test that enforces each control, deployment settings, residual risks |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Public demo on Render's free plans (`render.yaml`): environment variables, smoke tests, free-tier limits, why it is not a production billing setup |
 | [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) | What v1 deliberately does not do (mock billing, in-process scheduling, catch-up billing, drift, failed refunds, localStorage JWT, no admin view, …) |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Every design decision and its rationale (B1 grace, B7 idempotency, B13a usage accounting, B19 period boundary and jobs, B20 frontend, B21 polish) |
 | [docs/STATE_MACHINE.md](docs/STATE_MACHINE.md) | Subscription states and transitions |
