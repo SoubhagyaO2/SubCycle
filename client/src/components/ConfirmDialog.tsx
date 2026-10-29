@@ -67,12 +67,12 @@ export function ConfirmDialog({ open, title, children, confirmLabel, cancelLabel
         aria-busy={busy || undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="max-h-[90vh] w-full overflow-y-auto rounded-t-xl bg-white p-5 shadow-xl sm:max-w-lg sm:rounded-xl"
+        className="max-h-[90vh] w-full overflow-y-auto rounded-t-xl bg-surface p-5 shadow-xl sm:max-w-lg sm:rounded-xl"
       >
-        <h2 id={titleId} className="text-lg font-semibold text-slate-900">
+        <h2 id={titleId} className="text-lg font-semibold text-ink">
           {title}
         </h2>
-        <div id={bodyId} className="mt-3 space-y-3 text-sm text-slate-700">
+        <div id={bodyId} className="mt-3 space-y-3 text-sm text-ink-2">
           {children}
         </div>
         {error && <Banner tone="error" className="mt-4">{error}</Banner>}

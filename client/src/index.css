@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+/* Light surfaces, navy text and a single blue-violet accent. Text tokens keep at least 4.5:1 on white; white text on brand-500/600 is 6:1. */
+@theme {
+  --color-canvas: #f6f9fc;
+  --color-surface: #ffffff;
+  --color-surface-2: #f6f9fc;
+  --color-line: #e3e8ee;
+  --color-ink: #0a2540;
+  --color-ink-2: #31425a;
+  --color-muted: #55667f;
+  --color-brand-50: #f1efff;
+  --color-brand-100: #e4dfff;
+  --color-brand-300: #b4a9ff;
+  --color-brand-400: #7a62fd;
+  --color-brand-500: #533afd;
+  --color-brand-600: #533afd;
+  --color-brand-700: #4434d4;
+  --color-brand-800: #2e2b8c;
+  --shadow-card: 0 1px 3px rgba(50, 50, 93, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-canvas);
+}

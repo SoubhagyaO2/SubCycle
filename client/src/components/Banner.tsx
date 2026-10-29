@@ -3,10 +3,10 @@ import type { ReactNode } from 'react';
 export type BannerTone = 'info' | 'success' | 'warn' | 'error';
 
 const TONES: Record<BannerTone, string> = {
-  info: 'border-sky-300 bg-sky-50 text-sky-950',
-  success: 'border-emerald-300 bg-emerald-50 text-emerald-950',
-  warn: 'border-amber-300 bg-amber-50 text-amber-950',
-  error: 'border-red-300 bg-red-50 text-red-950',
+  info: 'border-sky-300 bg-sky-50 text-sky-900',
+  success: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+  warn: 'border-amber-300 bg-amber-50 text-amber-900',
+  error: 'border-red-300 bg-red-50 text-red-900',
 };
 
 const LABELS: Record<BannerTone, string> = { info: 'Notice', success: 'Success', warn: 'Warning', error: 'Error' };
@@ -24,7 +24,7 @@ export function Banner({ tone, title, children, onDismiss, className = '' }: { t
           {children && <div className={title ? 'mt-1' : ''}>{children}</div>}
         </div>
         {onDismiss && (
-          <button type="button" onClick={onDismiss} className="rounded px-2 text-lg leading-none focus-visible:outline-2 focus-visible:outline-indigo-600" aria-label="Dismiss message">
+          <button type="button" onClick={onDismiss} className="rounded px-2 text-lg leading-none focus-visible:outline-2 focus-visible:outline-brand-600" aria-label="Dismiss message">
             ×
           </button>
         )}

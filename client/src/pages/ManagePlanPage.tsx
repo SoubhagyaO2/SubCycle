@@ -111,7 +111,7 @@ export function ManagePlanPage() {
     return (
       <>
         <PageHeader title="Manage plan" />
-        <EmptyState title="No active subscription" action={<Link to="/pricing" className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Choose a plan</Link>}>
+        <EmptyState title="No active subscription" action={<Link to="/pricing" className="rounded-md bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Choose a plan</Link>}>
           Subscribe to a plan first, then you can change it here.
         </EmptyState>
       </>
@@ -133,7 +133,7 @@ export function ManagePlanPage() {
 
         <Section title="Upgrade" description="Upgrades take effect immediately. You pay the price difference for the rest of the current period.">
           {upgrades.length === 0 ? (
-            <p className="text-sm text-slate-600">There is no higher plan with the same billing period.</p>
+            <p className="text-sm text-muted">There is no higher plan with the same billing period.</p>
           ) : (
             <PlanGrid>
               {upgrades.map((p) => (
@@ -150,7 +150,7 @@ export function ManagePlanPage() {
 
         <Section title="Downgrade" description="A downgrade is scheduled for the end of the current period. You keep your current plan and limits until then.">
           {downgrades.length === 0 ? (
-            <p className="text-sm text-slate-600">There is no lower plan with the same billing period.</p>
+            <p className="text-sm text-muted">There is no lower plan with the same billing period.</p>
           ) : (
             <PlanGrid>
               {downgrades.map((p) => (
@@ -169,7 +169,7 @@ export function ManagePlanPage() {
             </PlanGrid>
           )}
           {!actions.downgrade.allowed && <Reason id="downgrade-reason">{actions.downgrade.reason}</Reason>}
-          {hasOtherInterval && <p className="mt-3 text-xs text-slate-600">Switching between monthly and yearly billing is not supported yet.</p>}
+          {hasOtherInterval && <p className="mt-3 text-xs text-muted">Switching between monthly and yearly billing is not supported yet.</p>}
         </Section>
 
         {subscription.pendingPlan && (
@@ -311,19 +311,19 @@ function DialogBody({ dialog, sub, preview }: { dialog: Dialog; sub: Subscriptio
           <p>
             Upgrade from <strong>{sub.plan.name}</strong> to <strong>{dialog.plan.name}</strong> ({formatMoney(dialog.plan.priceCents)} / {dialog.plan.interval}). The change applies immediately.
           </p>
-          <dl className="rounded-md bg-slate-50 p-3">
+          <dl className="rounded-md bg-surface-2 p-3">
             <div className="flex justify-between gap-3">
               <dt>Time left in this period</dt>
               <dd>
                 {formatDuration(preview.data.remainingMs)} of {formatDuration(preview.data.totalMs)}
               </dd>
             </div>
-            <div className="mt-1 flex justify-between gap-3 font-semibold text-slate-900">
+            <div className="mt-1 flex justify-between gap-3 font-semibold text-ink">
               <dt>Estimated charge now</dt>
               <dd>{preview.data.chargeRequired ? formatMoney(preview.data.amountCents) : 'No charge'}</dd>
             </div>
           </dl>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-muted">
             This is an estimate. The final amount is calculated by the server when you confirm. Your upgrade is only complete once you see the confirmation.
           </p>
         </>
@@ -361,11 +361,11 @@ function DialogBody({ dialog, sub, preview }: { dialog: Dialog; sub: Subscriptio
 function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   const id = `sec-${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
-    <section aria-labelledby={id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 id={id} className="text-lg font-semibold text-slate-900">
+    <section aria-labelledby={id} className="rounded-2xl border border-line bg-surface p-5 shadow-card">
+      <h2 id={id} className="text-lg font-semibold text-ink">
         {title}
       </h2>
-      <p className="mt-1 text-sm text-slate-600">{description}</p>
+      <p className="mt-1 text-sm text-muted">{description}</p>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -373,7 +373,7 @@ function Section({ title, description, children }: { title: string; description:
 
 const PlanGrid = ({ children }: { children: ReactNode }) => <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{children}</div>;
 const Reason = ({ id, children }: { id: string; children: ReactNode }) => (
-  <p id={id} className="mt-3 text-sm text-slate-600">
+  <p id={id} className="mt-3 text-sm text-muted">
     {children}
   </p>
 );

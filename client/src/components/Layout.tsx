@@ -45,26 +45,26 @@ export function Layout() {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:shadow">
+    <div className="min-h-screen bg-canvas text-ink">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2 focus:shadow">
         Skip to main content
       </a>
       <DemoNotice />
-      <header className="relative border-b border-slate-200 bg-white">
+      <header className="relative border-b border-line bg-surface">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-          <Link to="/" className="text-lg font-bold tracking-tight text-indigo-700">
+          <Link to="/" className="text-lg font-bold tracking-tight text-brand-700">
             SubCycle
           </Link>
           <button
             type="button"
-            className="rounded-md px-3 py-2 text-sm font-medium ring-1 ring-slate-300 md:hidden"
+            className="rounded-md px-3 py-2 text-sm font-medium ring-1 ring-line md:hidden"
             aria-expanded={menuOpen}
             aria-controls="primary-nav"
             onClick={() => setMenuOpen((o) => !o)}
           >
             Menu
           </button>
-          <nav id="primary-nav" aria-label="Primary" className={`${menuOpen ? 'block' : 'hidden'} absolute inset-x-0 top-full z-40 border-b border-slate-200 bg-white p-3 md:static md:block md:border-0 md:p-0`}>
+          <nav id="primary-nav" aria-label="Primary" className={`${menuOpen ? 'block' : 'hidden'} absolute inset-x-0 top-full z-40 border-b border-line bg-surface p-3 md:static md:block md:border-0 md:p-0`}>
             <ul className="flex flex-col gap-1 md:flex-row md:items-center">
               {NAV.map((item) => (
                 <li key={item.to}>
@@ -73,15 +73,15 @@ export function Layout() {
                     end={item.end}
                     onClick={() => setMenuOpen(false)}
                     className={({ isActive }) =>
-                      `block rounded-md px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-indigo-600 ${isActive ? 'bg-indigo-50 text-indigo-800' : 'text-slate-700 hover:bg-slate-100'}`
+                      `block rounded-md px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-brand-600 ${isActive ? 'bg-brand-50 text-brand-800' : 'text-ink-2 hover:bg-surface-2'}`
                     }
                   >
                     {item.label}
                   </NavLink>
                 </li>
               ))}
-              <li className="mt-2 flex items-center gap-3 border-t border-slate-200 pt-2 md:ml-3 md:mt-0 md:border-0 md:pt-0">
-                <span className="truncate text-xs text-slate-600" title={user?.email}>
+              <li className="mt-2 flex items-center gap-3 border-t border-line pt-2 md:ml-3 md:mt-0 md:border-0 md:pt-0">
+                <span className="truncate text-xs text-muted" title={user?.email}>
                   {user?.email}
                 </span>
                 <Button variant="secondary" onClick={logout}>

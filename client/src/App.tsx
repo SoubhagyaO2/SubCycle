@@ -40,9 +40,9 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function NotFoundPage() {
   return (
     <div className="py-16 text-center">
-      <h1 className="text-2xl font-semibold text-slate-900">Page not found</h1>
-      <p className="mt-2 text-sm text-slate-600">That page does not exist.</p>
-      <Link to="/" className="mt-4 inline-block text-sm font-medium text-indigo-700 underline underline-offset-2">
+      <h1 className="text-2xl font-semibold text-ink">Page not found</h1>
+      <p className="mt-2 text-sm text-muted">That page does not exist.</p>
+      <Link to="/" className="mt-4 inline-block text-sm font-medium text-brand-700 underline underline-offset-2">
         Back to the dashboard
       </Link>
     </div>
