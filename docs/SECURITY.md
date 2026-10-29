@@ -45,7 +45,7 @@ isolation, validation, CORS, error safety, production guards). Residual risks ar
 - **Content-Security-Policy** for the static web app (it uses a Tailwind stylesheet file, inline `style` attributes for progress bars, and a `data:` favicon):
   `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`
   (if the API is on another origin, add it to `connect-src`). Also send `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-- **Trust proxy.** The per-IP login limiter uses `req.ip`. Behind a reverse proxy or load balancer every client appears as the proxy until `trust proxy` is configured (not enabled in v1), so either configure it or enforce login rate limits at the edge.
+- **Trust proxy.** The per-IP login limiter uses `req.ip`. Behind a reverse proxy or load balancer every client appears as the proxy unless `TRUST_PROXY` is set. It is **off by default** and accepts only a hop count (1 to 5, for example `1` on Render), never `true`, because trusting every hop would let a client choose its own rate-limit key by sending `X-Forwarded-For`. Tests (`server/tests/trustProxy.test.ts`) simulate the proxy header; the hop count has not been verified against Render's real network until the post-deploy check in [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Database role.** Run the API with a role that owns only its schema (not a superuser); keep `ALLOW_DB_RESET` unset; take backups.
 - **Secrets.** Provide `JWT_SECRET` (≥ 32 random characters, rotated on suspicion of leak; rotation invalidates all sessions), `DATABASE_URL`, `CORS_ORIGINS` through the platform's secret store.
 
@@ -53,7 +53,7 @@ isolation, validation, CORS, error safety, production guards). Residual risks ar
 
 1. **JWT in `localStorage`.** Any script that runs on the page can read it, so the app depends on staying free of XSS (mitigated by text-only rendering, lint bans and a CSP). Tokens live 1 hour; there is no refresh token and **no server-side revocation or logout** (signing out only deletes the token in the browser). An `HttpOnly` cookie with CSRF protection would remove this class of risk.
 2. **Registration reveals whether an email exists** (409 `EMAIL_TAKEN`); login does not.
-3. **Rate limiters are in-memory per process** and the login limiter keys on IP (see trust proxy above). Multiple API processes each keep their own counters.
+3. **Rate limiters are in-memory per process** and the login limiter keys on IP (see trust proxy above; set `TRUST_PROXY` behind a proxy). Multiple API processes each keep their own counters.
 4. **Mock billing only.** No card data is handled at all in v1; a real provider needs webhook verification, PCI scoping and the checklist items above re-reviewed.
 5. **No operator audit or alerting.** Failed refunds and stuck payment operations are visible to the affected user and in the job log, but there is no operator-wide view or alert.
 6. **Single-factor authentication, no account lockout beyond rate limiting, no email verification or password reset.**
