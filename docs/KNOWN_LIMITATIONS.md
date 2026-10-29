@@ -21,7 +21,7 @@ Related: [SECURITY.md](SECURITY.md) (residual risks), [DECISIONS.md](DECISIONS.m
 | Limitation | What actually happens | Way out |
 |---|---|---|
 | **Scheduling is in-process** | `node-cron` runs inside each API process (`RUN_JOBS`). There is no leader election and no separate worker. Several processes are **safe** (every subscription is claimed with `FOR UPDATE SKIP LOCKED`, due-ness is re-checked, charges are idempotent) but they all poll. If every process is down, nothing renews until one returns. | A dedicated worker deployment, or a platform scheduler calling the job entry point. |
-| **Rate limiting is per process and in memory** | Counters are not shared between API processes or restarts; the login limiter keys on IP and `trust proxy` is not configured, so behind a proxy all clients share one bucket. | Shared store or edge rate limiting; configure trust proxy. |
+| **Rate limiting is per process and in memory** | Counters are not shared between API processes or restarts; the login limiter keys on IP and `trust proxy` is off unless `TRUST_PROXY` is set (a hop count; Render's blueprint uses `1`), so behind a proxy with it unset all clients share one bucket. | Shared store or edge rate limiting; configure trust proxy. |
 | **Reconciliation is eventual** | An unknown payment outcome stays `pending` (never counted as paid) until the next job cycle or the user's retry resolves it by looking up the original provider key. | Shorter job interval; provider webhooks. |
 | **No outbox worker / email notifications** | Refund processing and reconciliation run from the job cycle. No emails (payment failed, receipt, cancellation) are sent. | Notification service driven by `subscription_events`. |
 

@@ -26,6 +26,8 @@ export interface AppDeps {
     bcryptCost: number;
     rateLimit: RateLimitSettings;
   };
+  /** Number of trusted reverse proxies in front of the API (Express `trust proxy` hop count). Default false: use the socket address. */
+  trustProxy?: number | false;
   /** Per-user limiter for /usage and /demo (default 600 requests per minute). */
   usageRateLimit?: RateLimitSettings;
   /** Settings for the job cycle triggered by the dev endpoint (the scheduler is wired in server.ts). */
@@ -39,7 +41,7 @@ export interface AppDeps {
   };
 }
 
-export function createApp({ pool, clock, corsOrigins, auth, billing, usageRateLimit, jobs, dev }: AppDeps): Express {
+export function createApp({ pool, clock, corsOrigins, auth, billing, usageRateLimit, jobs, dev, trustProxy }: AppDeps): Express {
   // Defence in depth: the dev routes (fake clock, run-renewals) must be impossible to mount in production,
   // whatever the caller passes in. server.ts also never passes them (config.DEV_ENDPOINTS is forced off).
   if (dev && process.env.NODE_ENV === 'production') {
@@ -47,6 +49,8 @@ export function createApp({ pool, clock, corsOrigins, auth, billing, usageRateLi
   }
   const app = express();
   app.disable('x-powered-by');
+  // req.ip (the per-IP login limiter's key) comes from X-Forwarded-For only for the hops we explicitly trust.
+  if (trustProxy) app.set('trust proxy', trustProxy);
   app.use(helmet());
   app.use(
     cors({

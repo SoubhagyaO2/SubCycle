@@ -12,6 +12,26 @@ const boolFlag = z
 export const DEV_JWT_SECRET = 'subcycle-insecure-development-only-secret-do-not-use-in-production';
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
 
+const MAX_TRUST_PROXY_HOPS = 5;
+
+/**
+ * `false` (default) or the NUMBER of reverse proxies in front of the API. Only a hop count is accepted: `true` would trust
+ * every X-Forwarded-For entry, letting any client pick its own rate-limit key.
+ */
+const trustProxy = z
+  .string()
+  .default('false')
+  .transform((v, ctx): number | false => {
+    const value = v.trim().toLowerCase();
+    if (value === 'false') return false;
+    if (/^\d+$/.test(value)) {
+      const hops = Number(value);
+      if (hops >= 1 && hops <= MAX_TRUST_PROXY_HOPS) return hops;
+    }
+    ctx.addIssue({ code: 'custom', message: `must be "false" or a proxy hop count from 1 to ${MAX_TRUST_PROXY_HOPS}` });
+    return z.NEVER;
+  });
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
@@ -25,6 +45,7 @@ const schema = z.object({
         .map((s) => s.trim())
         .filter(Boolean),
     ),
+  TRUST_PROXY: trustProxy,
   FAKE_CLOCK: boolFlag,
   ALLOW_DB_RESET: boolFlag,
   JWT_SECRET: z.string().optional(),

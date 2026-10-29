@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFlash } from '../context/FlashContext';
 import { Banner } from './Banner';
 import { Button } from './Button';
+import { DemoNotice } from './DemoNotice';
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
@@ -48,7 +49,8 @@ export function Layout() {
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:shadow">
         Skip to main content
       </a>
-      <header className="border-b border-slate-200 bg-white">
+      <DemoNotice />
+      <header className="relative border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
           <Link to="/" className="text-lg font-bold tracking-tight text-indigo-700">
             SubCycle
@@ -62,7 +64,7 @@ export function Layout() {
           >
             Menu
           </button>
-          <nav id="primary-nav" aria-label="Primary" className={`${menuOpen ? 'block' : 'hidden'} absolute inset-x-0 top-14 z-40 border-b border-slate-200 bg-white p-3 md:static md:block md:border-0 md:p-0`}>
+          <nav id="primary-nav" aria-label="Primary" className={`${menuOpen ? 'block' : 'hidden'} absolute inset-x-0 top-full z-40 border-b border-slate-200 bg-white p-3 md:static md:block md:border-0 md:p-0`}>
             <ul className="flex flex-col gap-1 md:flex-row md:items-center">
               {NAV.map((item) => (
                 <li key={item.to}>

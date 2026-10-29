@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { Banner } from '../components/Banner';
 import { Button } from '../components/Button';
+import { DemoNotice, PasswordReuseWarning } from '../components/DemoNotice';
 import { FormField } from '../components/FormField';
 import { useAuth } from '../context/AuthContext';
 
@@ -81,6 +82,8 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
 
   const isLogin = mode === 'login';
   return (
+    <>
+    <DemoNotice />
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10">
       <h1 className="text-center text-2xl font-bold tracking-tight text-indigo-700">SubCycle</h1>
       <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -112,6 +115,7 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
             {isLogin ? 'Sign in' : 'Create account'}
           </Button>
         </form>
+        {!isLogin && <PasswordReuseWarning />}
         <p className="mt-4 text-center text-sm text-slate-600">
           {isLogin ? (
             <>
@@ -131,6 +135,7 @@ function AuthForm({ mode }: { mode: 'login' | 'register' }) {
         </p>
       </div>
     </div>
+    </>
   );
 }
 
